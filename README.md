@@ -7,7 +7,7 @@
 - `backend/`：FastAPI + SQLAlchemy 后端
 - `frontend/`：React + TypeScript + Vite 前端
 - `contracts/ColdChainMonitorV3.sol`：当前最终版智能合约源码
-- `hardware/esp32.ino`：脱敏后的 ESP32 示例代码
+- `Arduino/esp32.ino`：脱敏后的 ESP32 示例代码
 - `docker-compose.yml`：单机部署入口
 
 当前仓库不包含本地数据库、日志、私钥、部署产物、真实设备配置和测试运行结果。
@@ -19,7 +19,7 @@
 ├── backend/
 ├── contracts/
 ├── frontend/
-├── hardware/
+├── Arduino/
 ├── docker-compose.yml
 └── README.md
 ```
@@ -50,7 +50,7 @@ cp frontend/.env.example frontend/.env
 - `ETH_PRIVATE_KEY`
 - `ETH_AES_KEY`
 
-`hardware/esp32.ino` 中的 WiFi、MQTT、NTP 配置也需要在本地手动替换为真实值。
+`Arduino/esp32.ino` 中的 WiFi、MQTT、NTP 配置也需要在本地手动替换为真实值。
 
 ## 本地开发
 
@@ -103,7 +103,7 @@ docker compose up --build -d
 
 - `contracts/ColdChainMonitorV3.sol` 是当前项目最终使用的合约源码
 - 公开仓库不再携带 Hardhat 测试、部署脚本和部署产物
-- `hardware/esp32.ino` 已脱敏，真实设备配置仅保留在你的本地副本中
+- `Arduino/esp32.ino` 已脱敏，真实设备配置仅保留在你的本地副本中
 
 ## 合约公开安全说明
 
