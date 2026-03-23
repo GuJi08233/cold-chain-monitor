@@ -6,7 +6,7 @@ import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from pathlib import Path
+from importlib import resources
 
 from sqlalchemy import select
 
@@ -119,16 +119,21 @@ def _bytes32_to_hex_text(value) -> str:
     return raw
 
 
+def _clear_retry_metadata(payload: dict) -> dict:
+    payload.pop("last_error", None)
+    payload.pop("last_error_at", None)
+    return payload
+
+
 class ChainService:
-    ABI_GLOB = "hardhat/ignition/deployments/chain-*/artifacts/*.json"
+    BUNDLED_ABI_PACKAGE = "app.contracts"
+    BUNDLED_ABI_FILE = "cold_chain_monitor_v3_abi.json"
     TX_RECEIPT_TIMEOUT_SECONDS = 180
 
     def __init__(self) -> None:
         self._loop: asyncio.AbstractEventLoop | None = None
         self._worker_task: asyncio.Task | None = None
         self._queue: asyncio.Queue[int] | None = None
-        self._artifact_path: Path | None = None
-        self._artifact_contract_address: str | None = None
         self._abi_cache: list | None = None
         self._lock = threading.RLock()
 
@@ -228,19 +233,32 @@ class ChainService:
         return record_id
 
     def retry_record(self, record_id: int) -> None:
+        dependency_retry_ids: list[int] = []
         with SessionLocal() as db:
             row = db.get(ChainRecord, record_id)
             if row is None:
                 raise ChainServiceError("上链记录不存在")
-            row.status = ChainRecordStatus.PENDING
-            row.tx_hash = None
-            row.block_number = None
-            payload = _safe_parse_json(row.payload)
-            payload.pop("last_error", None)
-            payload.pop("last_error_at", None)
-            row.payload = _stable_payload_text(payload)
+
+            if (
+                row.type == ChainRecordType.ANOMALY_END
+                and row.anomaly_id is not None
+                and self._resolve_chain_anomaly_id(db, row.anomaly_id) is None
+            ):
+                start_row = self._load_latest_start_record(
+                    db,
+                    row.anomaly_id,
+                    ChainRecordStatus.FAILED,
+                )
+                if start_row is not None:
+                    self._prepare_row_for_retry(start_row)
+                    db.add(start_row)
+                    dependency_retry_ids.append(start_row.record_id)
+
+            self._prepare_row_for_retry(row)
             db.add(row)
             db.commit()
+        for retry_id in dependency_retry_ids:
+            self._enqueue_record(retry_id)
         self._enqueue_record(record_id)
 
     def get_order_hash(self, order_id: str) -> dict | None:
@@ -441,6 +459,10 @@ class ChainService:
             if chain_anomaly_id is None:
                 if row.anomaly_id is not None and self._has_pending_start_record(db, row.anomaly_id):
                     raise ChainRetryLater("等待 anomaly_start 上链确认")
+                if row.anomaly_id is not None and self._has_failed_start_record(db, row.anomaly_id):
+                    raise ChainWriteError(
+                        "关联的 anomaly_start 尚未成功，请先重试 anomaly_start 后再重试 anomaly_end"
+                    )
                 raise ChainWriteError("缺少 chain_anomaly_id，无法关闭链上异常")
             return self._write_anomaly_end(payload)
 
@@ -615,21 +637,30 @@ class ChainService:
 
     @staticmethod
     def _parse_anomaly_started_event(contract, receipt) -> int | None:
+        for event_name in ("AnomalyStarted", "AnomalyStartedLite"):
+            events = ChainService._process_receipt_events(contract, event_name, receipt)
+            if not events:
+                continue
+            value = events[0]["args"].get("anomalyId")
+            if value is not None:
+                return int(value)
+        return None
+
+    @staticmethod
+    def _process_receipt_events(contract, event_name: str, receipt) -> list:
+        try:
+            event_builder = getattr(contract.events, event_name)
+        except Exception:  # noqa: BLE001
+            return []
         try:
             from web3.logs import DISCARD  # pylint: disable=import-outside-toplevel
 
-            events = contract.events.AnomalyStarted().process_receipt(receipt, errors=DISCARD)
+            return event_builder().process_receipt(receipt, errors=DISCARD)
         except Exception:  # noqa: BLE001
             try:
-                events = contract.events.AnomalyStarted().process_receipt(receipt)
+                return event_builder().process_receipt(receipt)
             except Exception:  # noqa: BLE001
-                return None
-        if not events:
-            return None
-        value = events[0]["args"].get("anomalyId")
-        if value is None:
-            return None
-        return int(value)
+                return []
 
     @staticmethod
     def _build_tx_params(web3, account_address: str, nonce: int) -> dict:
@@ -670,7 +701,7 @@ class ChainService:
         except Exception as exc:  # noqa: BLE001
             raise ChainConfigError("eth_contract_address 不是合法地址") from exc
 
-        abi = self._load_contract_abi(config.contract_address)
+        abi = self._load_contract_abi()
         contract = web3.eth.contract(address=contract_address, abi=abi)
         try:
             account = web3.eth.account.from_key(config.private_key)
@@ -713,67 +744,24 @@ class ChainService:
             contract_address=contract_address,
         )
 
-    def _load_contract_abi(self, contract_address: str | None = None) -> list:
+    def _load_contract_abi(self) -> list:
         with self._lock:
-            normalized = (contract_address or "").strip().lower()
-            if (
-                self._abi_cache is not None
-                and self._artifact_path is not None
-                and self._artifact_path.exists()
-                and self._artifact_contract_address == normalized
-            ):
+            if self._abi_cache is not None:
                 return self._abi_cache
 
-            artifact_path = self._resolve_artifact_path(contract_address)
             try:
-                data = json.loads(artifact_path.read_text(encoding="utf-8"))
-            except Exception as exc:  # noqa: BLE001
-                raise ChainConfigError(f"读取合约 ABI 失败: {artifact_path}") from exc
-            abi = data.get("abi")
-            if not isinstance(abi, list) or not abi:
-                raise ChainConfigError("合约 ABI 为空或格式不正确")
-            self._artifact_path = artifact_path
-            self._artifact_contract_address = normalized
-            self._abi_cache = abi
-            return abi
-
-    def _resolve_artifact_path(self, contract_address: str | None = None) -> Path:
-        with self._lock:
-            normalized = (contract_address or "").strip().lower()
-            if (
-                self._artifact_path is not None
-                and self._artifact_path.exists()
-                and self._artifact_contract_address == normalized
-            ):
-                return self._artifact_path
-
-            root = Path(__file__).resolve().parents[3]
-            matched = sorted(root.glob(self.ABI_GLOB))
-            if not matched:
-                raise ChainConfigError("未找到 Hardhat 编译产物，请先部署智能合约")
-            if normalized:
-                deployment_files = sorted(
-                    root.glob("hardhat/ignition/deployments/chain-*/deployed_addresses.json")
+                abi_path = resources.files(self.BUNDLED_ABI_PACKAGE).joinpath(
+                    self.BUNDLED_ABI_FILE
                 )
-                for deployment_file in deployment_files:
-                    try:
-                        deployed_map = json.loads(deployment_file.read_text(encoding="utf-8"))
-                    except Exception:  # noqa: BLE001
-                        continue
-                    if not isinstance(deployed_map, dict):
-                        continue
-                    for module_id, deployed_address in deployed_map.items():
-                        if str(deployed_address).strip().lower() != normalized:
-                            continue
-                        candidate = deployment_file.parent / "artifacts" / f"{module_id}.json"
-                        if candidate.exists():
-                            self._artifact_path = candidate
-                            self._artifact_contract_address = normalized
-                            return self._artifact_path
-
-            self._artifact_path = matched[-1]
-            self._artifact_contract_address = normalized
-            return self._artifact_path
+                data = json.loads(abi_path.read_text(encoding="utf-8"))
+            except Exception as exc:  # noqa: BLE001
+                raise ChainConfigError(
+                    "读取后端内置合约 ABI 失败，请检查 app/contracts 目录"
+                ) from exc
+            if not isinstance(data, list) or not data:
+                raise ChainConfigError("后端内置合约 ABI 为空或格式不正确")
+            self._abi_cache = data
+            return data
 
     @staticmethod
     def _has_function(contract, fn_name: str) -> bool:
@@ -927,6 +915,44 @@ class ChainService:
             .limit(1)
         )
         return row is not None
+
+    @staticmethod
+    def _has_failed_start_record(db, anomaly_id: int) -> bool:
+        row = db.scalar(
+            select(ChainRecord.record_id)
+            .where(
+                ChainRecord.type == ChainRecordType.ANOMALY_START,
+                ChainRecord.anomaly_id == anomaly_id,
+                ChainRecord.status == ChainRecordStatus.FAILED,
+            )
+            .limit(1)
+        )
+        return row is not None
+
+    @staticmethod
+    def _load_latest_start_record(
+        db,
+        anomaly_id: int,
+        status: ChainRecordStatus,
+    ) -> ChainRecord | None:
+        return db.scalar(
+            select(ChainRecord)
+            .where(
+                ChainRecord.type == ChainRecordType.ANOMALY_START,
+                ChainRecord.anomaly_id == anomaly_id,
+                ChainRecord.status == status,
+            )
+            .order_by(ChainRecord.record_id.desc())
+            .limit(1)
+        )
+
+    @staticmethod
+    def _prepare_row_for_retry(row: ChainRecord) -> None:
+        row.status = ChainRecordStatus.PENDING
+        row.tx_hash = None
+        row.block_number = None
+        payload = _clear_retry_metadata(_safe_parse_json(row.payload))
+        row.payload = _stable_payload_text(payload)
 
     @staticmethod
     def _create_record(

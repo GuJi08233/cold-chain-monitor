@@ -90,6 +90,7 @@ npm run dev
 - `backend/.env`
 - 可访问的 MQTT Broker
 - 可访问的 TDengine
+- 可访问的 ETH RPC（如果启用上链）
 
 启动示例：
 
@@ -114,6 +115,7 @@ docker compose up --build -d
 
 - `contracts/ColdChainMonitorV3.sol` 是当前项目最终使用的合约源码
 - 公开仓库不再携带 Hardhat 测试、部署脚本和部署产物
+- 后端运行时已内置最小 ABI，不再依赖 Hardhat 编译产物
 - `Arduino/esp32.ino` 已脱敏，真实设备配置仅保留在你的本地副本中
 
 ## 合约公开安全说明
@@ -133,5 +135,5 @@ docker compose up --build -d
 
 ## 额外说明
 
-- 后端链上交互原始实现依赖 ABI 与部署地址产物
-- 当前公开仓库只保留最终合约源码；如需重新启用完整上链部署链路，需要你在私有仓库或本地补回 Hardhat 工程与部署产物
+- 当前公开仓库运行后端时，只需要正确配置 `ETH_RPC_URL`、`ETH_CONTRACT_ADDRESS`、`ETH_PRIVATE_KEY`
+- 如果你后续升级了链上合约接口，需要同步更新 `backend/app/contracts/cold_chain_monitor_v3_abi.json`

@@ -85,7 +85,7 @@ class CryptoHashTests(unittest.TestCase):
             payload={"code": 9731, "desc": "Table does not exist"},
         )
         with patch(
-            "app.services.hash_service.tdengine_service.query_sensor_batch",
+            "app.services.hash_service.tdengine_service.query_sensor_after_ts",
             return_value=missing_table_result,
         ):
             digest = self.hash_service.compute_order_hash_streaming(
