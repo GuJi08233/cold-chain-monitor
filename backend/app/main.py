@@ -1,7 +1,11 @@
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.staticfiles import StaticFiles
 
 from .api.router import api_router
 from .config import get_settings
@@ -17,6 +21,36 @@ from .ws.monitor import router as monitor_ws_router
 from .ws.notifications import router as notifications_ws_router
 
 settings = get_settings()
+FRONTEND_DIST_DIR = Path(__file__).resolve().parent / "static"
+FRONTEND_INDEX_FILE = FRONTEND_DIST_DIR / "index.html"
+SPA_EXCLUDED_PREFIXES = ("api", "ws", "docs", "redoc", "openapi.json")
+
+
+class SPAStaticFiles(StaticFiles):
+    async def get_response(self, path: str, scope):
+        try:
+            response = await super().get_response(path, scope)
+        except StarletteHTTPException as exc:
+            if exc.status_code != 404 or not self._should_fallback(path):
+                raise
+            return await super().get_response("index.html", scope)
+
+        if response.status_code == 404 and self._should_fallback(path):
+            return await super().get_response("index.html", scope)
+        return response
+
+    @staticmethod
+    def _should_fallback(path: str) -> bool:
+        if not FRONTEND_INDEX_FILE.exists():
+            return False
+        normalized = path.strip("/")
+        if not normalized:
+            return True
+        if normalized in SPA_EXCLUDED_PREFIXES:
+            return False
+        if any(normalized.startswith(f"{prefix}/") for prefix in SPA_EXCLUDED_PREFIXES):
+            return False
+        return "." not in Path(normalized).name
 
 
 @asynccontextmanager
@@ -60,8 +94,14 @@ app.include_router(notifications_ws_router)
 
 
 @app.get("/")
-def root() -> dict:
+def root():
+    if FRONTEND_INDEX_FILE.exists():
+        return FileResponse(FRONTEND_INDEX_FILE)
     return success_response(
         data={"service": "cold-chain-backend", "env": settings.app_env},
         msg="ok",
     )
+
+
+if FRONTEND_DIST_DIR.exists():
+    app.mount("/", SPAStaticFiles(directory=FRONTEND_DIST_DIR, html=True), name="frontend")

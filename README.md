@@ -8,6 +8,7 @@
 - `frontend/`：React + TypeScript + Vite 前端
 - `contracts/ColdChainMonitorV3.sol`：当前最终版智能合约源码
 - `Arduino/esp32.ino`：脱敏后的 ESP32 示例代码
+- `Dockerfile`：单镜像构建前后端并由 FastAPI 统一提供服务
 - `docker-compose.yml`：单机部署入口
 
 当前仓库不包含本地数据库、日志、私钥、部署产物、真实设备配置和测试运行结果。
@@ -20,6 +21,7 @@
 ├── contracts/
 ├── frontend/
 ├── Arduino/
+├── Dockerfile
 ├── docker-compose.yml
 └── README.md
 ```
@@ -72,14 +74,16 @@ npm run dev
 
 ## Docker
 
-仓库提供了基础容器文件：
+仓库默认提供单镜像部署入口：
 
-- `backend/Dockerfile`
-- `frontend/Dockerfile`
-- `frontend/nginx.conf`
+- `Dockerfile`
 - `docker-compose.yml`
 
-`docker-compose.yml` 默认将前端静态资源和 `/api`、`/ws` 统一挂在一个入口下，便于单机部署和外部客户端访问。
+根目录 `Dockerfile` 会在构建阶段打包前端，再把产物复制到后端镜像中；运行时只启动一个 FastAPI 进程，由它统一提供：
+
+- 前端静态资源
+- API `/api/*`
+- WebSocket `/ws/*`
 
 启动前需要先准备：
 
@@ -88,6 +92,13 @@ npm run dev
 - 可访问的 TDengine
 
 启动示例：
+
+```bash
+docker build -t cold-chain-monitor .
+docker run --env-file backend/.env -p 8080:8000 cold-chain-monitor
+```
+
+或使用 Compose：
 
 ```bash
 docker compose up --build -d
