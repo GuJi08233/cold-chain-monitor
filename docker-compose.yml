@@ -9,4 +9,6 @@ services:
       - ./backend/.env
     ports:
       - "8080:8000"
+    volumes:
+      - ./data:/app/data
     restart: unless-stopped

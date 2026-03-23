@@ -25,6 +25,7 @@ backend/*.sqlite
 backend/*.sqlite3
 backend/smoke*.json
 backend/tmp_order_id.txt
+data/
 
 # Editor
 .vscode/

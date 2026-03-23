@@ -92,11 +92,17 @@ npm run dev
 - 可访问的 TDengine
 - 可访问的 ETH RPC（如果启用上链）
 
+如果你使用 SQLite（默认配置），建议把数据库文件放到容器挂载目录中，避免 `docker compose up --build` 重建容器后丢失数据。当前示例环境变量默认使用：
+
+```env
+DATABASE_URL=sqlite:///./data/cold_chain.db
+```
+
 启动示例：
 
 ```bash
 docker build -t cold-chain-monitor .
-docker run --env-file backend/.env -p 8080:8000 cold-chain-monitor
+docker run --env-file backend/.env -p 8080:8000 -v $(pwd)/data:/app/data cold-chain-monitor
 ```
 
 或使用 Compose：
@@ -104,6 +110,8 @@ docker run --env-file backend/.env -p 8080:8000 cold-chain-monitor
 ```bash
 docker compose up --build -d
 ```
+
+Compose 默认会把宿主机 `./data` 挂载到容器 `/app/data`，用于持久化 SQLite 数据库。
 
 默认对外开放 `8080`，访问：
 
