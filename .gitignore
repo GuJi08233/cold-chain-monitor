@@ -26,18 +26,6 @@ backend/*.sqlite3
 backend/smoke*.json
 backend/tmp_order_id.txt
 
-# Hardhat generated files
-hardhat/cache/
-hardhat/artifacts/
-hardhat/typechain/
-hardhat/typechain-types/
-hardhat/coverage/
-hardhat/coverage.json
-hardhat/ignition/deployments/
-
 # Editor
 .vscode/
 .idea/
-
-# Local hardware sketch copy
-hardware/esp32.ino

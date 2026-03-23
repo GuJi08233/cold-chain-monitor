@@ -1,29 +1,24 @@
 # 基于以太坊的冷链运输监控系统
 
-这是一个面向冷链运输场景的全栈项目公开代码仓库，包含：
+这是一个面向冷链运输场景的最小公开代码仓库，保留当前项目的核心程序代码与脱敏后的设备/合约源码。
+
+## 包含内容
 
 - `backend/`：FastAPI + SQLAlchemy 后端
 - `frontend/`：React + TypeScript + Vite 前端
-- `hardhat/`：智能合约、测试与部署模块
-- `hardware/`：ESP32 设备侧示例代码
+- `contracts/ColdChainMonitorV3.sol`：当前最终版智能合约源码
+- `hardware/esp32.ino`：脱敏后的 ESP32 示例代码
+- `docker-compose.yml`：单机部署入口
 
-当前仓库只保留程序代码、示例配置和基础部署文件，不包含本地数据库、日志、私钥、部署产物和测试运行结果。
-
-## 核心能力
-
-- 用户与权限：`super_admin / admin / driver`，JWT 鉴权、登录保护、WebSocket 临时票据
-- 冷链监控：设备绑定、运单流转、实时监控、异常检测、通知和工单闭环
-- 数据接入：MQTT 订阅设备数据并写入 TDengine
-- 区块链存证：运单哈希上链、异常开始/结束上链、低 Gas 司机锚点
-- 前端展示：管理员端、司机端、图表、轨迹地图、区块浏览器跳转
+当前仓库不包含本地数据库、日志、私钥、部署产物、真实设备配置和测试运行结果。
 
 ## 目录说明
 
 ```text
 .
 ├── backend/
+├── contracts/
 ├── frontend/
-├── hardhat/
 ├── hardware/
 ├── docker-compose.yml
 └── README.md
@@ -31,24 +26,17 @@
 
 ## 环境变量
 
-每个模块都使用自己的 `.env.example`：
+公开仓库只保留运行项目所需的示例环境变量：
 
 - `backend/.env.example`
 - `frontend/.env.example`
-- `hardhat/.env.example`
-- `hardware/.env.example`
 
 复制方式：
 
 ```bash
 cp backend/.env.example backend/.env
 cp frontend/.env.example frontend/.env
-cp hardhat/.env.example hardhat/.env
 ```
-
-说明：
-
-- `hardware/.env.example` 仅作为硬件配置占位清单，ESP32 草图需要手动同步这些值
 
 上线前请务必替换以下敏感项：
 
@@ -61,7 +49,8 @@ cp hardhat/.env.example hardhat/.env
 - `ETH_CONTRACT_ADDRESS`
 - `ETH_PRIVATE_KEY`
 - `ETH_AES_KEY`
-- `hardhat/.env` 中的各网络私钥
+
+`hardware/esp32.ino` 中的 WiFi、MQTT、NTP 配置也需要在本地手动替换为真实值。
 
 ## 本地开发
 
@@ -79,15 +68,6 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 cd frontend
 npm install
 npm run dev
-```
-
-### 合约
-
-```bash
-cd hardhat
-npm install
-npx hardhat compile
-npx hardhat test
 ```
 
 ## Docker
@@ -119,7 +99,13 @@ docker compose up --build -d
 - API：`http://127.0.0.1:8080/api/*`
 - WebSocket：`ws://127.0.0.1:8080/ws/*`
 
-## 合约与公开安全说明
+## 合约与硬件说明
+
+- `contracts/ColdChainMonitorV3.sol` 是当前项目最终使用的合约源码
+- 公开仓库不再携带 Hardhat 测试、部署脚本和部署产物
+- `hardware/esp32.ino` 已脱敏，真实设备配置仅保留在你的本地副本中
+
+## 合约公开安全说明
 
 智能合约源码公开本身是常见做法，安全性不应依赖“源码保密”。真正需要保密的是：
 
@@ -130,12 +116,11 @@ docker compose up --build -d
 
 即使不公开源码，只要合约已经部署到链上，字节码仍然是公开可分析的。因此：
 
-- 可以公开合约源码、测试和部署脚本
+- 可以公开合约源码
 - 不要公开部署私钥和生产环境密钥
 - 不要把历史部署日志、热钱包关联文档、真实生产配置一起放进公开仓库
 
 ## 额外说明
 
-- 后端链上交互会读取 Hardhat 部署后生成的 ABI 产物
-- 当前公开仓库不提交 `hardhat/ignition/deployments/*` 运行产物
-- 如需启用上链功能，请先完成合约部署，再根据部署结果同步后端配置
+- 后端链上交互原始实现依赖 ABI 与部署地址产物
+- 当前公开仓库只保留最终合约源码；如需重新启用完整上链部署链路，需要你在私有仓库或本地补回 Hardhat 工程与部署产物
