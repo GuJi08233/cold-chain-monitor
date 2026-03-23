@@ -1,0 +1,10 @@
+fastapi==0.118.0
+uvicorn[standard]==0.30.6
+sqlalchemy==2.0.36
+pydantic-settings==2.6.1
+pyjwt==2.9.0
+bcrypt==4.2.1
+python-dotenv==1.0.1
+paho-mqtt==2.1.0
+pycryptodome==3.21.0
+web3==7.13.0
