@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from ..core.auth import get_current_user, require_role
 from ..core.deps import get_db_session
 from ..core.response import success_response
+from ..core.time_utils import app_now, format_app_datetime
 from ..models import (
     Anomaly,
     AnomalyStatus,
@@ -30,9 +31,7 @@ def _enum_value(value) -> str:
 
 
 def _datetime_text(value: datetime | None) -> str | None:
-    if value is None:
-        return None
-    return value.isoformat(sep=" ", timespec="seconds")
+    return format_app_datetime(value)
 
 
 def _serialize_ticket(row: Ticket) -> dict:
@@ -197,7 +196,7 @@ def approve_ticket(
         if order.status in (OrderStatus.COMPLETED, OrderStatus.ABNORMAL_CLOSED):
             raise HTTPException(status_code=400, detail="运单已结束，无法取消")
         if order.status != OrderStatus.CANCELLED:
-            now = datetime.now()
+            now = app_now()
             order.status = OrderStatus.CANCELLED
             if order.actual_end is None:
                 order.actual_end = now
@@ -213,7 +212,7 @@ def approve_ticket(
     row.status = TicketStatus.APPROVED
     row.reviewer_id = current_user.user_id
     row.review_comment = payload.comment
-    row.reviewed_at = datetime.now()
+    row.reviewed_at = app_now()
     db.add(row)
     db.commit()
     db.refresh(row)
@@ -255,7 +254,7 @@ def reject_ticket(
     row.status = TicketStatus.REJECTED
     row.reviewer_id = current_user.user_id
     row.review_comment = payload.comment
-    row.reviewed_at = datetime.now()
+    row.reviewed_at = app_now()
     db.add(row)
     db.commit()
     db.refresh(row)

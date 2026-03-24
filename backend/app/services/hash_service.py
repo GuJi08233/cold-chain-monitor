@@ -2,6 +2,7 @@ import hashlib
 import json
 from datetime import datetime
 
+from ..core.time_utils import normalize_app_datetime, parse_app_datetime
 from .tdengine_service import tdengine_service
 
 
@@ -9,14 +10,13 @@ class HashService:
     @staticmethod
     def _normalize_ts(raw_ts) -> str:
         if isinstance(raw_ts, datetime):
-            return raw_ts.strftime("%Y-%m-%d %H:%M:%S.%f")[:23]
+            return normalize_app_datetime(raw_ts).strftime("%Y-%m-%d %H:%M:%S.%f")[:23]
 
         text = str(raw_ts)
-        try:
-            dt = datetime.fromisoformat(text.replace("Z", "+00:00")).replace(tzinfo=None)
+        dt = parse_app_datetime(text)
+        if dt is not None:
             return dt.strftime("%Y-%m-%d %H:%M:%S.%f")[:23]
-        except ValueError:
-            return text
+        return text
 
     @staticmethod
     def _normalize_value(value, precision: int):
@@ -39,12 +39,8 @@ class HashService:
     @staticmethod
     def _parse_ts_to_datetime(raw_ts) -> datetime | None:
         if isinstance(raw_ts, datetime):
-            return raw_ts.replace(tzinfo=None)
-        text = str(raw_ts)
-        try:
-            return datetime.fromisoformat(text.replace("Z", "+00:00")).replace(tzinfo=None)
-        except ValueError:
-            return None
+            return normalize_app_datetime(raw_ts)
+        return parse_app_datetime(str(raw_ts))
 
     def normalize_record(self, record: dict) -> dict:
         return {

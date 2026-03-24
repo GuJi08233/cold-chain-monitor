@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from ..core.auth import get_current_user
 from ..core.deps import get_db_session
 from ..core.response import success_response
+from ..core.time_utils import format_app_datetime
 from ..models import Notification, User
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
@@ -31,7 +32,7 @@ def _serialize_notification(row: Notification) -> dict:
         "title": row.title,
         "content": _parse_content(row.content),
         "is_read": row.is_read,
-        "created_at": row.created_at.isoformat(sep=" ", timespec="seconds"),
+        "created_at": format_app_datetime(row.created_at),
     }
 
 
@@ -107,4 +108,3 @@ def get_unread_count(
         )
     )
     return success_response(data={"unread_count": count})
-

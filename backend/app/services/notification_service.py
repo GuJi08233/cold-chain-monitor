@@ -5,6 +5,7 @@ import time
 from sqlalchemy.exc import OperationalError
 from sqlalchemy import select
 
+from ..core.time_utils import format_app_datetime
 from ..database import SessionLocal
 from ..models import Notification, NotificationType, User, UserRole, UserStatus
 from ..ws.notifications import notification_connection_manager
@@ -70,7 +71,7 @@ class NotificationService:
                             "title": row.title,
                             "content": content if isinstance(content, dict) else content_text,
                             "is_read": row.is_read,
-                            "created_at": row.created_at.isoformat(sep=" ", timespec="seconds"),
+                            "created_at": format_app_datetime(row.created_at),
                         },
                     }
                 break

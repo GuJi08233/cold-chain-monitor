@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from ..core.auth import require_role
 from ..core.deps import get_db_session
 from ..core.response import success_response
+from ..core.time_utils import format_app_datetime
 from ..models import (
     Anomaly,
     AnomalyStatus,
@@ -29,9 +30,7 @@ def _enum_value(value) -> str:
 
 
 def _datetime_text(value: datetime | None) -> str | None:
-    if value is None:
-        return None
-    return value.isoformat(sep=" ", timespec="seconds")
+    return format_app_datetime(value)
 
 
 @router.get("/stats")

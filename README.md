@@ -45,6 +45,7 @@ cp frontend/.env.example frontend/.env
 - `APP_SECRET_KEY`
 - `JWT_SECRET_KEY`
 - `SUPER_ADMIN_PASSWORD`
+- `APP_TIMEZONE`
 - `MQTT_*`
 - `TDENGINE_*`
 - `ETH_RPC_URL`
@@ -95,6 +96,7 @@ npm run dev
 如果你使用 SQLite（默认配置），建议把数据库文件放到容器挂载目录中，避免 `docker compose up --build` 重建容器后丢失数据。当前示例环境变量默认使用：
 
 ```env
+APP_TIMEZONE=Asia/Shanghai
 DATABASE_URL=sqlite:///./data/cold_chain.db
 ```
 

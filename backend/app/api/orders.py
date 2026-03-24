@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from ..core.auth import get_current_user, require_role
 from ..core.deps import get_db_session
 from ..core.response import success_response
+from ..core.time_utils import app_now, format_app_datetime, normalize_app_datetime
 from ..database import SessionLocal
 from ..models import (
     AlertRule,
@@ -37,9 +38,7 @@ def _role_value(value) -> str:
 
 
 def _datetime_text(value: datetime | None) -> str | None:
-    if value is None:
-        return None
-    return value.isoformat(sep=" ", timespec="seconds")
+    return format_app_datetime(value)
 
 
 def _parse_cargo_info(raw_value: str | None):
@@ -94,7 +93,7 @@ def _device_suffix(device_id: str) -> str:
 
 
 def _generate_order_id(db: Session, device_id: str) -> str:
-    now = datetime.now()
+    now = app_now()
     prefix = f"ORD{now:%Y%m%d}{_device_suffix(device_id)}_{now:%H%M%S}"
     for _ in range(100):
         candidate = f"{prefix}{random.randint(0, 99):02d}"
@@ -154,7 +153,7 @@ def _finalize_completed_order(order_id: str) -> None:
         if order is None:
             return
 
-        end_time = order.actual_end or datetime.now()
+        end_time = order.actual_end or app_now()
         closed_anomaly_ids = _close_ongoing_anomalies(db, order.order_id, end_time)
         try:
             data_hash = hash_service.compute_order_hash_streaming(
@@ -209,9 +208,7 @@ def create_order(
     if active_order is not None:
         raise HTTPException(status_code=400, detail="设备存在运输中运单，无法重复创建")
 
-    planned_start = payload.planned_start
-    if planned_start.tzinfo is not None:
-        planned_start = planned_start.astimezone().replace(tzinfo=None)
+    planned_start = normalize_app_datetime(payload.planned_start)
 
     order_id = _generate_order_id(db, payload.device_id)
     order = Order(
@@ -329,7 +326,7 @@ def start_order(
 
     order.status = OrderStatus.IN_TRANSIT
     if order.actual_start is None:
-        order.actual_start = datetime.now()
+        order.actual_start = app_now()
     db.add(order)
     db.commit()
     db.refresh(order)
@@ -352,7 +349,7 @@ def complete_order(
         raise HTTPException(status_code=400, detail="运单状态不允许此操作")
 
     order.status = OrderStatus.COMPLETED
-    order.actual_end = datetime.now()
+    order.actual_end = app_now()
     db.add(order)
     db.commit()
     db.refresh(order)
@@ -373,7 +370,7 @@ def cancel_order(
         raise HTTPException(status_code=400, detail="当前运单状态不允许取消")
 
     order.status = OrderStatus.CANCELLED
-    closed_anomaly_ids = _close_ongoing_anomalies(db, order.order_id, datetime.now())
+    closed_anomaly_ids = _close_ongoing_anomalies(db, order.order_id, app_now())
     db.add(order)
     db.commit()
     db.refresh(order)

@@ -1,9 +1,9 @@
 import asyncio
 import logging
-from datetime import datetime
 
 from sqlalchemy import select
 
+from ..core.time_utils import app_now
 from ..database import SessionLocal
 from ..models import Order, OrderStatus
 
@@ -39,7 +39,7 @@ class OrderLifecycleService:
 
     @staticmethod
     def _auto_start_due_orders_once() -> None:
-        now = datetime.now()
+        now = app_now()
         with SessionLocal() as db:
             due_orders = db.scalars(
                 select(Order)

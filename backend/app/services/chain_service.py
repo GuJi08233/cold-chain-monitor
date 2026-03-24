@@ -5,12 +5,13 @@ import logging
 import threading
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 from importlib import resources
 
 from sqlalchemy import select
 
 from ..config import get_settings
+from ..core.time_utils import app_now, format_app_datetime, to_unix_seconds
 from ..database import SessionLocal
 from ..models import (
     Anomaly,
@@ -63,7 +64,7 @@ def _enum_value(value) -> str:
 
 
 def _to_unix_seconds(value: datetime) -> int:
-    return int(value.replace(tzinfo=timezone.utc).timestamp())
+    return to_unix_seconds(value)
 
 
 def _safe_parse_json(raw_value: str) -> dict:
@@ -425,7 +426,7 @@ class ChainService:
                     return
                 payload = _safe_parse_json(row.payload)
                 payload["last_error"] = str(exc)
-                payload["last_error_at"] = datetime.now(timezone.utc).isoformat()
+                payload["last_error_at"] = format_app_datetime(app_now())
                 row.payload = _stable_payload_text(payload)
                 row.status = ChainRecordStatus.FAILED
                 db.add(row)

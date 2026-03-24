@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 
 from sqlalchemy import select
 
+from ..core.time_utils import app_now, format_app_datetime
 from ..database import SessionLocal
 from ..models import (
     AlertRule,
@@ -155,7 +156,7 @@ class AnomalyEngineService:
                             "trigger_value": value,
                             "threshold_min": rule.min_value,
                             "threshold_max": rule.max_value,
-                            "ts": ts.isoformat(sep=" ", timespec="seconds"),
+                            "ts": format_app_datetime(ts),
                         },
                     },
                 )
@@ -169,7 +170,7 @@ class AnomalyEngineService:
                             "trigger_value": value,
                             "threshold_min": rule.min_value,
                             "threshold_max": rule.max_value,
-                            "ts": ts.isoformat(sep=" ", timespec="seconds"),
+                            "ts": format_app_datetime(ts),
                         },
                     }
                 )
@@ -224,7 +225,7 @@ class AnomalyEngineService:
                         "trigger_value": value,
                         "threshold_min": rule.min_value,
                         "threshold_max": rule.max_value,
-                        "ts": ts.isoformat(sep=" ", timespec="seconds"),
+                        "ts": format_app_datetime(ts),
                     },
                 },
             )
@@ -238,7 +239,7 @@ class AnomalyEngineService:
                         "trigger_value": value,
                         "threshold_min": rule.min_value,
                         "threshold_max": rule.max_value,
-                        "ts": ts.isoformat(sep=" ", timespec="seconds"),
+                        "ts": format_app_datetime(ts),
                     },
                 }
             )
@@ -304,7 +305,7 @@ class AnomalyEngineService:
                     "anomaly_id": anomaly.anomaly_id,
                     "metric": self._enum_value(anomaly.metric),
                     "peak_value": state.peak_value,
-                    "ts": ts.isoformat(sep=" ", timespec="seconds"),
+                    "ts": format_app_datetime(ts),
                 },
             },
         )
@@ -317,7 +318,7 @@ class AnomalyEngineService:
                     "anomaly_id": anomaly.anomaly_id,
                     "metric": self._enum_value(anomaly.metric),
                     "peak_value": state.peak_value,
-                    "ts": ts.isoformat(sep=" ", timespec="seconds"),
+                    "ts": format_app_datetime(ts),
                 },
             }
         )
@@ -328,7 +329,7 @@ class AnomalyEngineService:
             await asyncio.to_thread(self._check_offline_once)
 
     def _check_offline_once(self) -> None:
-        now = datetime.now()
+        now = app_now()
         pending_notifications: list[dict] = []
         pending_chain_events: list[tuple[str, int]] = []
         with SessionLocal() as db:
@@ -381,7 +382,7 @@ class AnomalyEngineService:
                                     "metric": "device_offline",
                                     "trigger_value": float(seconds),
                                     "threshold_max": float(self.OFFLINE_TIMEOUT_SECONDS),
-                                    "ts": now.isoformat(sep=" ", timespec="seconds"),
+                                    "ts": format_app_datetime(now),
                                 },
                             },
                         )
@@ -394,7 +395,7 @@ class AnomalyEngineService:
                                     "metric": "device_offline",
                                     "trigger_value": float(seconds),
                                     "threshold_max": float(self.OFFLINE_TIMEOUT_SECONDS),
-                                    "ts": now.isoformat(sep=" ", timespec="seconds"),
+                                    "ts": format_app_datetime(now),
                                 },
                             }
                         )
@@ -422,7 +423,7 @@ class AnomalyEngineService:
                                     "anomaly_id": anomaly.anomaly_id,
                                     "metric": "device_offline",
                                     "peak_value": anomaly.peak_value,
-                                    "ts": now.isoformat(sep=" ", timespec="seconds"),
+                                    "ts": format_app_datetime(now),
                                 },
                             },
                         )
@@ -435,7 +436,7 @@ class AnomalyEngineService:
                                     "metric": "device_offline",
                                     "anomaly_id": anomaly.anomaly_id,
                                     "peak_value": anomaly.peak_value,
-                                    "ts": now.isoformat(sep=" ", timespec="seconds"),
+                                    "ts": format_app_datetime(now),
                                 },
                             }
                         )

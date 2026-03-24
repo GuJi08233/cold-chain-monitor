@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from ..core.auth import get_current_user
 from ..core.deps import get_db_session
 from ..core.response import success_response
+from ..core.time_utils import format_app_datetime
 from ..models import Anomaly, AnomalyMetric, AnomalyStatus, Order, User, UserRole
 
 router = APIRouter(tags=["anomalies"])
@@ -15,7 +16,7 @@ def _enum_value(value) -> str:
 
 
 def _datetime_text(value):
-    return value.isoformat(sep=" ", timespec="seconds") if value else None
+    return format_app_datetime(value)
 
 
 def _serialize_anomaly(anomaly: Anomaly) -> dict:
@@ -111,4 +112,3 @@ def list_order_anomalies(
         stmt = stmt.where(Anomaly.status == status)
     rows = db.scalars(stmt.order_by(Anomaly.start_time.desc())).all()
     return success_response(data=[_serialize_anomaly(row) for row in rows])
-

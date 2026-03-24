@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session, selectinload
 from ..core.auth import require_role
 from ..core.deps import get_db_session
 from ..core.response import success_response
+from ..core.time_utils import format_app_datetime
 from ..models import Device, DeviceStatus, Order, OrderStatus, User, UserRole, UserStatus
 from ..schemas.device import DeviceBindRequest, DeviceCreateRequest
 from ..services.mqtt_service import mqtt_ingestion_service
@@ -29,12 +30,8 @@ def _serialize_device(device: Device) -> dict:
         "name": device.name,
         "driver_id": device.driver_id,
         "status": device.status.value if hasattr(device.status, "value") else str(device.status),
-        "last_seen": (
-            device.last_seen.isoformat(sep=" ", timespec="seconds")
-            if device.last_seen is not None
-            else None
-        ),
-        "created_at": device.created_at.isoformat(sep=" ", timespec="seconds"),
+        "last_seen": format_app_datetime(device.last_seen),
+        "created_at": format_app_datetime(device.created_at),
         "driver": driver,
     }
 

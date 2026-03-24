@@ -8,6 +8,7 @@ import paho.mqtt.client as mqtt
 from sqlalchemy import select
 
 from ..config import get_settings
+from ..core.time_utils import app_now, format_app_datetime, parse_app_datetime
 from ..database import SessionLocal
 from ..models import Device, DeviceStatus, Order, OrderStatus
 from .anomaly_engine import anomaly_engine_service
@@ -112,7 +113,7 @@ class MqttIngestionService:
             logger.warning("MQTT ingest queue is full, dropping payload for %s", parsed.get("device_id"))
 
     def _mark_device_seen(self, device_id: str) -> None:
-        now = datetime.now()
+        now = app_now()
         with self._seen_device_lock:
             self._seen_devices[device_id] = now
             # 仅保留最近 24 小时出现过的设备，避免内存长期累积。
@@ -122,12 +123,12 @@ class MqttIngestionService:
                 self._seen_devices.pop(stale_id, None)
 
     def list_discovered_devices(self, online_window_seconds: int = 120) -> list[dict]:
-        cutoff = datetime.now() - timedelta(seconds=online_window_seconds)
+        cutoff = app_now() - timedelta(seconds=online_window_seconds)
         with self._seen_device_lock:
             rows = [
                 {
                     "device_id": device_id,
-                    "last_seen": ts.isoformat(sep=" ", timespec="seconds"),
+                    "last_seen": format_app_datetime(ts),
                 }
                 for device_id, ts in self._seen_devices.items()
                 if ts >= cutoff
@@ -190,7 +191,7 @@ class MqttIngestionService:
             "order_id": order_id,
             "data": {
                 "order_id": order_id,
-                "ts": ts.isoformat(sep=" ", timespec="seconds"),
+                "ts": format_app_datetime(ts),
                 "temperature": parsed["temperature"],
                 "humidity": parsed["humidity"],
                 "pressure": parsed["pressure"],
@@ -235,14 +236,8 @@ class MqttIngestionService:
             return None
 
     def _parse_timestamp(self, timestamp_text: str | None) -> datetime:
-        if not timestamp_text:
-            return datetime.now()
-        try:
-            return datetime.fromisoformat(timestamp_text.replace("Z", "+00:00")).replace(
-                tzinfo=None
-            )
-        except ValueError:
-            return datetime.now()
+        parsed = parse_app_datetime(timestamp_text, fallback_to_now=True)
+        return parsed if parsed is not None else app_now()
 
     def _parse_message(self, raw: dict) -> dict | None:
         device_id = str(raw.get("device_id") or "").strip()

@@ -1,6 +1,6 @@
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from ..core.auth import get_current_user, require_role
 from ..core.deps import get_db_session
 from ..core.response import success_response
+from ..core.time_utils import format_app_datetime, from_unix_seconds
 from ..models import (
     Anomaly,
     ChainRecord,
@@ -36,15 +37,13 @@ def _enum_value(value) -> str:
 
 
 def _datetime_text(value: datetime | None) -> str | None:
-    if value is None:
-        return None
-    return value.isoformat(sep=" ", timespec="seconds")
+    return format_app_datetime(value)
 
 
 def _datetime_from_unix(ts: int | None) -> str | None:
     if ts is None or ts <= 0:
         return None
-    return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    return format_app_datetime(from_unix_seconds(ts))
 
 
 def _parse_payload(raw_text: str):

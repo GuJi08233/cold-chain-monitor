@@ -1,7 +1,27 @@
 from functools import lru_cache
+from datetime import timedelta, timezone, tzinfo
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+
+APP_TIMEZONE_FALLBACKS: dict[str, tzinfo] = {
+    "asia/shanghai": timezone(timedelta(hours=8), name="Asia/Shanghai"),
+    "prc": timezone(timedelta(hours=8), name="PRC"),
+    "utc": timezone.utc,
+    "etc/utc": timezone.utc,
+}
+
+
+def resolve_app_timezone(value: str) -> tzinfo:
+    try:
+        return ZoneInfo(value)
+    except ZoneInfoNotFoundError:
+        fallback = APP_TIMEZONE_FALLBACKS.get(value.strip().lower())
+        if fallback is not None:
+            return fallback
+        raise
 
 
 class Settings(BaseSettings):
@@ -10,6 +30,7 @@ class Settings(BaseSettings):
     app_debug: bool = Field(default=True, validation_alias="APP_DEBUG")
     app_host: str = Field(default="0.0.0.0", validation_alias="APP_HOST")
     app_port: int = Field(default=8000, validation_alias="APP_PORT")
+    app_timezone: str = Field(default="Asia/Shanghai", validation_alias="APP_TIMEZONE")
 
     app_secret_key: str = Field(
         default="replace-with-64-char-random-secret",
@@ -80,6 +101,19 @@ class Settings(BaseSettings):
         case_sensitive=False,
         extra="ignore",
     )
+
+    @field_validator("app_timezone")
+    @classmethod
+    def validate_app_timezone(cls, value: str) -> str:
+        try:
+            resolve_app_timezone(value)
+        except ZoneInfoNotFoundError as exc:
+            raise ValueError(f"APP_TIMEZONE 无效: {value}") from exc
+        return value
+
+    @property
+    def app_tzinfo(self) -> tzinfo:
+        return resolve_app_timezone(self.app_timezone)
 
     @property
     def is_sqlite(self) -> bool:

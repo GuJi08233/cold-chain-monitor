@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from ..core.auth import get_current_user
 from ..core.deps import get_db_session
 from ..core.response import success_response
+from ..core.time_utils import app_now, normalize_app_datetime, parse_app_datetime
 from ..models import Order, OrderStatus, User, UserRole
 from ..services.tdengine_service import tdengine_service
 
@@ -23,18 +24,10 @@ def _enum_value(value) -> str:
 
 
 def _parse_datetime(raw_value: str | None, field_name: str) -> datetime | None:
-    if raw_value is None:
-        return None
-    text = raw_value.strip()
-    if not text:
-        return None
-    try:
-        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
-        if parsed.tzinfo is not None:
-            return parsed.astimezone().replace(tzinfo=None)
-        return parsed
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=f"{field_name} 时间格式错误") from exc
+    parsed = parse_app_datetime(raw_value)
+    if parsed is None and raw_value and raw_value.strip():
+        raise HTTPException(status_code=400, detail=f"{field_name} 时间格式错误")
+    return parsed
 
 
 def _auto_interval(start: datetime, end: datetime) -> str:
@@ -56,7 +49,7 @@ def _resolve_time_window(
     start_text: str | None,
     end_text: str | None,
 ) -> tuple[datetime, datetime]:
-    now = datetime.now()
+    now = app_now()
     if mode == "realtime":
         return now - timedelta(minutes=5), now
 
@@ -80,7 +73,7 @@ def _resolve_time_window(
             raise HTTPException(status_code=400, detail="custom 模式必须提供 start_time 与 end_time")
         if start_dt >= end_dt:
             raise HTTPException(status_code=400, detail="start_time 必须早于 end_time")
-        return start_dt, end_dt
+        return normalize_app_datetime(start_dt), normalize_app_datetime(end_dt)
 
     raise HTTPException(status_code=400, detail="mode 参数不合法")
 

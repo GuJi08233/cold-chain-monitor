@@ -8,6 +8,7 @@ from ..config import get_settings
 from ..core.auth import create_access_token, get_current_user
 from ..core.deps import get_db_session
 from ..core.response import success_response
+from ..core.time_utils import format_app_datetime
 from ..core.security import hash_password, validate_password_strength, verify_password
 from ..models import DriverProfile, Order, User, UserRole, UserStatus
 from ..schemas.auth import ChangePasswordRequest, LoginRequest, RegisterRequest, WsTicketRequest
@@ -142,7 +143,7 @@ def get_me(current_user: User = Depends(get_current_user)) -> dict:
             "role": role,
             "display_name": current_user.display_name,
             "status": status,
-            "created_at": current_user.created_at.isoformat(sep=" ", timespec="seconds"),
+            "created_at": format_app_datetime(current_user.created_at),
             "driver_profile": profile,
         }
     )
