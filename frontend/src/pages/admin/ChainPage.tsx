@@ -19,8 +19,10 @@ interface ChainRecord {
 interface VerifyResult {
   order_id: string;
   local_hash: string | null;
+  stored_hash: string | null;
   chain_hash: string | null;
   match: boolean;
+  local_hash_changed: boolean;
   tx_hash: string | null;
 }
 
@@ -156,6 +158,7 @@ export function ChainPage() {
   const [anomalyDetail, setAnomalyDetail] = useState<ChainAnomalyDetail | null>(null);
   const [loading, setLoading] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [verifyLoading, setVerifyLoading] = useState(false);
   const [error, setError] = useState("");
 
   const loadData = async () => {
@@ -196,18 +199,22 @@ export function ChainPage() {
   };
 
   const verifyOrder = async () => {
-    if (!verifyOrderId.trim()) {
+    const target = verifyOrderId.trim();
+    if (!target || verifyLoading) {
       return;
     }
     setError("");
     setVerifyResult(null);
+    setVerifyLoading(true);
     try {
       const data = await unwrap(
-        api.get<ApiResponse<VerifyResult>>(`/chain/order/${verifyOrderId.trim()}/verify`),
+        api.get<ApiResponse<VerifyResult>>(`/chain/order/${target}/verify`),
       );
       setVerifyResult(data);
     } catch (requestError) {
       setError(getErrorMessage(requestError));
+    } finally {
+      setVerifyLoading(false);
     }
   };
 
@@ -239,15 +246,23 @@ export function ChainPage() {
             placeholder="输入运单号"
             value={verifyOrderId}
           />
-          <button className="primary-btn inline" onClick={() => void verifyOrder()} type="button">
-            验证哈希
+          <button
+            className="primary-btn inline"
+            disabled={!verifyOrderId.trim() || verifyLoading}
+            onClick={() => void verifyOrder()}
+            type="button"
+          >
+            {verifyLoading ? "验证中..." : "验证哈希"}
           </button>
         </div>
+        {verifyLoading && <p className="muted">验证中，正在实时重算 TDengine 本地哈希...</p>}
         {verifyResult && (
           <div className={verifyResult.match ? "state-box success" : "state-box danger"}>
             <p>运单号: {verifyResult.order_id}</p>
-            <p>本地哈希: {verifyResult.local_hash || "-"}</p>
+            <p>当前本地哈希: {verifyResult.local_hash || "-"}</p>
+            <p>完结快照哈希: {verifyResult.stored_hash || "-"}</p>
             <p>链上哈希: {verifyResult.chain_hash || "-"}</p>
+            <p>本地数据状态: {verifyResult.local_hash_changed ? "已发生变更" : "未检测到变更"}</p>
             <p>校验结果: {verifyResult.match ? "一致" : "不一致"}</p>
             <p>交易哈希: {renderTxHashLink(verifyResult.tx_hash, verifyResult.tx_hash || undefined)}</p>
           </div>

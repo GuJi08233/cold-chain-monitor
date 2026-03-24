@@ -22,6 +22,7 @@ from ..models import (
     UserRole,
 )
 from ..services.chain_service import ChainServiceError, chain_service
+from ..services.hash_service import hash_service
 
 router = APIRouter(prefix="/chain", tags=["chain"])
 logger = logging.getLogger(__name__)
@@ -66,6 +67,17 @@ def _normalize_hash_text(value: str | None) -> str:
     if text.startswith("0x"):
         text = text[2:]
     return text
+
+
+def _compute_current_order_hash(order: Order) -> str:
+    try:
+        return hash_service.compute_order_hash_streaming(
+            device_id=order.device_id,
+            order_id=order.order_id,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("local hash recompute failed (%s): %s", order.order_id, exc)
+        raise HTTPException(status_code=502, detail="本地数据哈希计算失败，请稍后重试") from exc
 
 
 def _ensure_order_access(current_user: User, order: Order) -> None:
@@ -170,20 +182,25 @@ def verify_order_hash(
     except ChainServiceError as exc:
         _raise_chain_service_error("get_order_hash", exc)
 
+    current_local_hash = _compute_current_order_hash(order)
+    stored_hash = order.data_hash
     match = False
-    if chain_data is not None and order.data_hash:
+    if chain_data is not None and current_local_hash:
         try:
-            match = chain_service.verify_order_hash(order_id, order.data_hash)
+            match = chain_service.verify_order_hash(order_id, current_local_hash)
         except ChainServiceError as exc:
             _raise_chain_service_error("verify_order_hash", exc)
 
     return success_response(
         data={
             "order_id": order.order_id,
-            "local_hash": order.data_hash,
+            "local_hash": current_local_hash,
+            "stored_hash": stored_hash,
             "chain_hash": chain_data["data_hash"] if chain_data else None,
             "data_hash_mode": chain_data.get("data_hash_mode") if chain_data else None,
             "match": match,
+            "local_hash_changed": _normalize_hash_text(current_local_hash)
+            != _normalize_hash_text(stored_hash),
             "chain_timestamp": _datetime_from_unix(chain_data["timestamp"]) if chain_data else None,
             "tx_hash": _normalize_tx_hash(chain_record.tx_hash) if chain_record is not None else None,
             "block_number": chain_record.block_number if chain_record is not None else None,

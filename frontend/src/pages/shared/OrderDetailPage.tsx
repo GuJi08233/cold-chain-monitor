@@ -80,8 +80,10 @@ interface SensorLatest {
 
 interface HashVerify {
   local_hash: string | null;
+  stored_hash: string | null;
   chain_hash: string | null;
   match: boolean;
+  local_hash_changed: boolean;
 }
 
 interface SensorMetricPoint {
@@ -358,6 +360,7 @@ export function OrderDetailPage() {
   const [anomalies, setAnomalies] = useState<AnomalyItem[]>([]);
   const [latest, setLatest] = useState<SensorLatest | null>(null);
   const [verify, setVerify] = useState<HashVerify | null>(null);
+  const [verifyLoading, setVerifyLoading] = useState(false);
   const [metrics, setMetrics] = useState<Record<MetricKey, SensorMetricPoint[]>>(EMPTY_METRICS);
   const [trackPoints, setTrackPoints] = useState<TrackPoint[]>([]);
   const [sensorInterval, setSensorInterval] = useState("raw");
@@ -611,10 +614,12 @@ export function OrderDetailPage() {
   }, [orderId, auth?.token, mode, order?.status]);
 
   const verifyHash = async () => {
-    if (!orderId) {
+    if (!orderId || verifyLoading) {
       return;
     }
     setError("");
+    setVerify(null);
+    setVerifyLoading(true);
     try {
       const data = await unwrap(
         api.get<ApiResponse<HashVerify>>(`/chain/order/${orderId}/verify`),
@@ -622,6 +627,8 @@ export function OrderDetailPage() {
       setVerify(data);
     } catch (requestError) {
       setError(getErrorMessage(requestError));
+    } finally {
+      setVerifyLoading(false);
     }
   };
 
@@ -1368,8 +1375,13 @@ export function OrderDetailPage() {
       <Panel
         extra={
           canVerifyHash ? (
-            <button className="ghost-btn" onClick={() => void verifyHash()} type="button">
-              验证哈希
+            <button
+              className="ghost-btn"
+              disabled={verifyLoading}
+              onClick={() => void verifyHash()}
+              type="button"
+            >
+              {verifyLoading ? "验证中..." : "验证哈希"}
             </button>
           ) : undefined
         }
@@ -1377,10 +1389,14 @@ export function OrderDetailPage() {
       >
         {!canVerifyHash ? (
           <p className="muted">运单完成后才可进行哈希校验</p>
+        ) : verifyLoading ? (
+          <p className="muted">验证中，正在实时重算 TDengine 本地哈希...</p>
         ) : verify ? (
           <div className={verify.match ? "state-box success" : "state-box danger"}>
-            <p>本地哈希: {verify.local_hash || "-"}</p>
+            <p>当前本地哈希: {verify.local_hash || "-"}</p>
+            <p>完结快照哈希: {verify.stored_hash || "-"}</p>
             <p>链上哈希: {verify.chain_hash || "-"}</p>
+            <p>本地数据状态: {verify.local_hash_changed ? "已发生变更" : "未检测到变更"}</p>
             <p>校验结果: {verify.match ? "一致" : "不一致"}</p>
           </div>
         ) : (
