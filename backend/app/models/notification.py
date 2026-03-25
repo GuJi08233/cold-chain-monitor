@@ -9,6 +9,7 @@ from .base import Base, utc_now
 class NotificationType(str, Enum):
     ANOMALY_START = "anomaly_start"
     ANOMALY_END = "anomaly_end"
+    HASH_MISMATCH = "hash_mismatch"
     TICKET_RESULT = "ticket_result"
     ORDER_ASSIGNED = "order_assigned"
     NEW_TICKET = "new_ticket"
@@ -31,4 +32,3 @@ class Notification(Base):
     created_at = Column(DateTime, nullable=False, default=utc_now)
 
     user = relationship("User", back_populates="notifications")
-

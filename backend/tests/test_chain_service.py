@@ -2,7 +2,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from app.models import ChainRecordType
+from app.models import ChainRecordStatus, ChainRecordType
 from app.services.chain_service import ChainService, ChainWriteError
 
 
@@ -40,6 +40,29 @@ class ChainServiceTests(unittest.TestCase):
             with self.assertRaises(ChainWriteError) as exc:
                 self.service._dispatch_chain_write(object(), row, {})
         self.assertIn("请先重试 anomaly_start", str(exc.exception))
+
+    def test_prepare_row_for_retry_tracks_retry_metadata(self):
+        row = SimpleNamespace(
+            status="failed",
+            tx_hash="0xabc",
+            block_number=15,
+            payload='{"last_error":"rpc timeout","retry_count":2}',
+        )
+
+        with patch("app.services.chain_service.app_now") as now_mock:
+            now_mock.return_value = SimpleNamespace()
+            with patch(
+                "app.services.chain_service.format_app_datetime",
+                return_value="2026-03-25 09:30:00",
+            ):
+                self.service._prepare_row_for_retry(row)
+
+        self.assertEqual(row.status, ChainRecordStatus.PENDING)
+        self.assertIsNone(row.tx_hash)
+        self.assertIsNone(row.block_number)
+        self.assertIn('"retry_count":3', row.payload)
+        self.assertIn('"last_retry_at":"2026-03-25 09:30:00"', row.payload)
+        self.assertNotIn("last_error", row.payload)
 
 
 if __name__ == "__main__":

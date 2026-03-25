@@ -13,6 +13,7 @@ from .core.exceptions import register_exception_handlers
 from .core.response import success_response
 from .services.anomaly_engine import anomaly_engine_service
 from .services.chain_service import chain_service
+from .services.integrity_guard_service import integrity_guard_service
 from .services.init_service import initialize_app_state
 from .services.mqtt_service import mqtt_ingestion_service
 from .services.notification_service import notification_service
@@ -59,6 +60,7 @@ async def lifespan(_: FastAPI):
     initialize_app_state()
     await notification_service.start()
     await chain_service.start()
+    await integrity_guard_service.start()
     await order_lifecycle_service.start()
     await anomaly_engine_service.start()
     await mqtt_ingestion_service.start()
@@ -68,6 +70,7 @@ async def lifespan(_: FastAPI):
         await mqtt_ingestion_service.stop()
         await anomaly_engine_service.stop()
         await order_lifecycle_service.stop()
+        await integrity_guard_service.stop()
         await chain_service.stop()
         await notification_service.stop()
 

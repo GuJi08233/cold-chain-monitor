@@ -31,6 +31,34 @@ class Settings(BaseSettings):
     app_host: str = Field(default="0.0.0.0", validation_alias="APP_HOST")
     app_port: int = Field(default=8000, validation_alias="APP_PORT")
     app_timezone: str = Field(default="Asia/Shanghai", validation_alias="APP_TIMEZONE")
+    chain_auto_retry_enabled: bool = Field(
+        default=True,
+        validation_alias="CHAIN_AUTO_RETRY_ENABLED",
+    )
+    chain_auto_retry_interval_seconds: int = Field(
+        default=30,
+        validation_alias="CHAIN_AUTO_RETRY_INTERVAL_SECONDS",
+    )
+    chain_auto_retry_max_interval_seconds: int = Field(
+        default=900,
+        validation_alias="CHAIN_AUTO_RETRY_MAX_INTERVAL_SECONDS",
+    )
+    chain_auto_retry_batch_size: int = Field(
+        default=20,
+        validation_alias="CHAIN_AUTO_RETRY_BATCH_SIZE",
+    )
+    hash_audit_enabled: bool = Field(
+        default=True,
+        validation_alias="HASH_AUDIT_ENABLED",
+    )
+    hash_audit_interval_seconds: int = Field(
+        default=300,
+        validation_alias="HASH_AUDIT_INTERVAL_SECONDS",
+    )
+    hash_audit_batch_size: int = Field(
+        default=20,
+        validation_alias="HASH_AUDIT_BATCH_SIZE",
+    )
 
     app_secret_key: str = Field(
         default="replace-with-64-char-random-secret",

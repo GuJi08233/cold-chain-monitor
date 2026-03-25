@@ -953,6 +953,13 @@ class ChainService:
         row.tx_hash = None
         row.block_number = None
         payload = _clear_retry_metadata(_safe_parse_json(row.payload))
+        retry_count = payload.get("retry_count")
+        try:
+            retry_value = max(0, int(retry_count)) + 1
+        except (TypeError, ValueError):
+            retry_value = 1
+        payload["retry_count"] = retry_value
+        payload["last_retry_at"] = format_app_datetime(app_now())
         row.payload = _stable_payload_text(payload)
 
     @staticmethod

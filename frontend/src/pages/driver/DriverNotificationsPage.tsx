@@ -22,6 +22,7 @@ interface UnreadCountResult {
 const TYPE_LABELS: Record<string, string> = {
   anomaly_start: "异常告警",
   anomaly_end: "异常恢复",
+  hash_mismatch: "哈希校验异常",
   ticket_result: "工单审批结果",
   order_assigned: "新运单下发",
   new_ticket: "新工单通知",
@@ -108,6 +109,12 @@ const CONTENT_KEY_LABELS: Record<string, string> = {
   message: "消息",
   reason: "原因",
   comment: "备注",
+  local_hash: "当前本地哈希",
+  stored_hash: "完结快照哈希",
+  chain_hash: "链上哈希",
+  local_hash_changed: "本地数据状态",
+  chain_record_id: "链记录ID",
+  chain_timestamp: "链上时间",
 };
 
 function buildSummary(item: NotificationItem, content: Record<string, unknown>): string | null {
@@ -134,6 +141,10 @@ function buildSummary(item: NotificationItem, content: Record<string, unknown>):
 
   if (item.type === "order_assigned") {
     return `你已被分配到运单 ${orderId}`;
+  }
+
+  if (item.type === "hash_mismatch") {
+    return `运单 ${orderId} 的本地监控数据与链上存证不一致，请立即核查。`;
   }
 
   if (item.type === "ticket_result") {
@@ -171,7 +182,16 @@ function renderContent(item: NotificationItem) {
   const summary = buildSummary(item, content);
   const detailEntries = Object.entries(content)
     .map(([key, value]) => {
-      const text = key === "metric" ? metricText(value) : valueToText(value);
+      const text =
+        key === "metric"
+          ? metricText(value)
+          : key === "local_hash_changed"
+            ? value === true
+              ? "已发生变更"
+              : value === false
+                ? "未检测到变更"
+                : valueToText(value)
+            : valueToText(value);
       if (!text) {
         return null;
       }
@@ -228,7 +248,8 @@ function resolveTarget(item: NotificationItem): NotificationTarget | null {
   if (
     item.type === "anomaly_start" ||
     item.type === "anomaly_end" ||
-    item.type === "order_assigned"
+    item.type === "order_assigned" ||
+    item.type === "hash_mismatch"
   ) {
     if (!orderId) {
       return null;
