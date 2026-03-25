@@ -6,25 +6,150 @@ from ..core.security import hash_password, validate_password_strength
 from ..database import SessionLocal, engine
 from ..models import Base, SystemConfig, User, UserRole, UserStatus
 
-DEFAULT_SYSTEM_CONFIG_KEYS = [
-    "eth_rpc_url",
-    "eth_contract_address",
-    "eth_private_key",
-    "tdengine_host",
-    "tdengine_port",
-    "tdengine_native_port",
-    "tdengine_rest_port",
-    "tdengine_db",
-    "tdengine_user",
-    "tdengine_password",
-    "mqtt_broker",
-    "mqtt_port",
-    "mqtt_username",
-    "mqtt_password",
-    "mqtt_topic",
-    "mqtt_client_id",
-    "eth_aes_key",
-]
+SYSTEM_CONFIG_META: dict[str, dict[str, object]] = {
+    "app_timezone": {
+        "group": "system",
+        "label": "应用时区",
+        "input_type": "timezone",
+    },
+    "chain_auto_retry_enabled": {
+        "group": "system",
+        "label": "启用自动重试",
+        "input_type": "boolean",
+    },
+    "chain_auto_retry_interval_seconds": {
+        "group": "system",
+        "label": "自动重试扫描间隔（秒）",
+        "input_type": "number",
+        "min": 5,
+    },
+    "chain_auto_retry_max_interval_seconds": {
+        "group": "system",
+        "label": "自动重试最大退避（秒）",
+        "input_type": "number",
+        "min": 5,
+    },
+    "chain_auto_retry_batch_size": {
+        "group": "system",
+        "label": "自动重试单轮批量数",
+        "input_type": "number",
+        "min": 1,
+    },
+    "hash_audit_enabled": {
+        "group": "system",
+        "label": "启用自动哈希巡检",
+        "input_type": "boolean",
+    },
+    "hash_audit_interval_seconds": {
+        "group": "system",
+        "label": "哈希巡检间隔（秒）",
+        "input_type": "number",
+        "min": 30,
+    },
+    "hash_audit_batch_size": {
+        "group": "system",
+        "label": "哈希巡检单轮批量数",
+        "input_type": "number",
+        "min": 1,
+    },
+    "eth_rpc_url": {
+        "group": "eth",
+        "label": "ETH RPC URL",
+        "input_type": "text",
+    },
+    "eth_contract_address": {
+        "group": "eth",
+        "label": "合约地址",
+        "input_type": "text",
+    },
+    "eth_private_key": {
+        "group": "eth",
+        "label": "链上私钥",
+        "input_type": "password",
+    },
+    "eth_aes_key": {
+        "group": "eth",
+        "label": "链上 AES 密钥",
+        "input_type": "password",
+    },
+    "tdengine_host": {
+        "group": "tdengine",
+        "label": "TDengine 主机",
+        "input_type": "text",
+    },
+    "tdengine_port": {
+        "group": "tdengine",
+        "label": "TDengine 端口（兼容项）",
+        "input_type": "number",
+        "min": 1,
+    },
+    "tdengine_native_port": {
+        "group": "tdengine",
+        "label": "TDengine 原生端口",
+        "input_type": "number",
+        "min": 1,
+    },
+    "tdengine_rest_port": {
+        "group": "tdengine",
+        "label": "TDengine REST 端口",
+        "input_type": "number",
+        "min": 1,
+    },
+    "tdengine_db": {
+        "group": "tdengine",
+        "label": "TDengine 数据库",
+        "input_type": "text",
+    },
+    "tdengine_user": {
+        "group": "tdengine",
+        "label": "TDengine 用户名",
+        "input_type": "text",
+    },
+    "tdengine_password": {
+        "group": "tdengine",
+        "label": "TDengine 密码",
+        "input_type": "password",
+    },
+    "mqtt_broker": {
+        "group": "mqtt",
+        "label": "MQTT Broker",
+        "input_type": "text",
+    },
+    "mqtt_port": {
+        "group": "mqtt",
+        "label": "MQTT 端口",
+        "input_type": "number",
+        "min": 1,
+    },
+    "mqtt_username": {
+        "group": "mqtt",
+        "label": "MQTT 用户名",
+        "input_type": "text",
+    },
+    "mqtt_password": {
+        "group": "mqtt",
+        "label": "MQTT 密码",
+        "input_type": "password",
+    },
+    "mqtt_topic": {
+        "group": "mqtt",
+        "label": "MQTT 主题",
+        "input_type": "text",
+    },
+    "mqtt_client_id": {
+        "group": "mqtt",
+        "label": "MQTT Client ID",
+        "input_type": "text",
+    },
+}
+
+DEFAULT_SYSTEM_CONFIG_KEYS = list(SYSTEM_CONFIG_META.keys())
+BOOLEAN_SYSTEM_CONFIG_KEYS = {
+    key for key, meta in SYSTEM_CONFIG_META.items() if meta.get("input_type") == "boolean"
+}
+NUMBER_SYSTEM_CONFIG_KEYS = {
+    key for key, meta in SYSTEM_CONFIG_META.items() if meta.get("input_type") == "number"
+}
 
 
 def initialize_database() -> None:

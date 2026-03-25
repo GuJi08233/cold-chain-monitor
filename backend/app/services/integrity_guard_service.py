@@ -6,7 +6,7 @@ from datetime import datetime
 from sqlalchemy import select
 
 from ..config import get_settings
-from ..core.time_utils import app_now, format_app_datetime, parse_app_datetime
+from ..core.time_utils import app_now, format_app_datetime, get_app_timezone, parse_app_datetime
 from ..database import SessionLocal
 from ..models import (
     ChainRecord,
@@ -23,6 +23,8 @@ from ..models import (
 from .chain_service import ChainServiceError, chain_service
 from .hash_service import hash_service
 from .notification_service import notification_service
+from .order_archive_service import order_archive_service
+from .system_config_service import system_config_service
 
 logger = logging.getLogger(__name__)
 
@@ -48,15 +50,12 @@ class IntegrityGuardService:
         self._hash_audit_task: asyncio.Task | None = None
 
     async def start(self) -> None:
-        settings = get_settings()
-        if settings.chain_auto_retry_enabled:
-            await asyncio.to_thread(self._retry_failed_chain_records_once)
-            if self._retry_task is None or self._retry_task.done():
-                self._retry_task = asyncio.create_task(self._retry_loop())
-        if settings.hash_audit_enabled:
-            await asyncio.to_thread(self._audit_order_hashes_once)
-            if self._hash_audit_task is None or self._hash_audit_task.done():
-                self._hash_audit_task = asyncio.create_task(self._hash_audit_loop())
+        await asyncio.to_thread(self._retry_failed_chain_records_once)
+        await asyncio.to_thread(self._audit_order_hashes_once)
+        if self._retry_task is None or self._retry_task.done():
+            self._retry_task = asyncio.create_task(self._retry_loop())
+        if self._hash_audit_task is None or self._hash_audit_task.done():
+            self._hash_audit_task = asyncio.create_task(self._hash_audit_loop())
 
     async def stop(self) -> None:
         for attr_name in ("_retry_task", "_hash_audit_task"):
@@ -71,23 +70,22 @@ class IntegrityGuardService:
             setattr(self, attr_name, None)
 
     async def _retry_loop(self) -> None:
-        interval = max(5, get_settings().chain_auto_retry_interval_seconds)
         while True:
+            interval = self._retry_interval_seconds()
             await asyncio.sleep(interval)
             await asyncio.to_thread(self._retry_failed_chain_records_once)
 
     async def _hash_audit_loop(self) -> None:
-        interval = max(30, get_settings().hash_audit_interval_seconds)
         while True:
+            interval = self._hash_audit_interval_seconds()
             await asyncio.sleep(interval)
             await asyncio.to_thread(self._audit_order_hashes_once)
 
     def _retry_failed_chain_records_once(self) -> None:
-        settings = get_settings()
-        if not settings.chain_auto_retry_enabled:
+        if not self._retry_enabled():
             return
         now = app_now()
-        batch_size = max(1, settings.chain_auto_retry_batch_size)
+        batch_size = self._retry_batch_size()
         with SessionLocal() as db:
             rows = db.scalars(
                 select(ChainRecord)
@@ -148,10 +146,9 @@ class IntegrityGuardService:
         return True
 
     def _audit_order_hashes_once(self) -> None:
-        settings = get_settings()
-        if not settings.hash_audit_enabled:
+        if not self._hash_audit_enabled():
             return
-        batch_size = max(1, settings.hash_audit_batch_size)
+        batch_size = self._hash_audit_batch_size()
         with SessionLocal() as db:
             rows = db.execute(
                 select(Order, ChainRecord)
@@ -168,8 +165,14 @@ class IntegrityGuardService:
                 .order_by(ChainRecord.record_id.desc())
                 .limit(batch_size)
             ).all()
+            archive_map = order_archive_service.list_order_archives(
+                [order.order_id for order, _ in rows],
+                db=db,
+            )
 
         for order, chain_record in rows:
+            if archive_map.get(order.order_id) is not None:
+                continue
             try:
                 chain_data = chain_service.get_order_hash(order.order_id)
                 if chain_data is None:
@@ -210,11 +213,9 @@ class IntegrityGuardService:
                 return parsed
         return None
 
-    @staticmethod
-    def _retry_delay_seconds(retry_count: int) -> int:
-        settings = get_settings()
-        base = max(5, settings.chain_auto_retry_interval_seconds)
-        max_delay = max(base, settings.chain_auto_retry_max_interval_seconds)
+    def _retry_delay_seconds(self, retry_count: int) -> int:
+        base = self._retry_interval_seconds()
+        max_delay = max(base, self._retry_max_interval_seconds())
         factor = 2 ** min(max(0, retry_count), 6)
         return min(base * factor, max_delay)
 
@@ -269,10 +270,71 @@ class IntegrityGuardService:
         if value <= 0:
             return None
         try:
-            dt = datetime.fromtimestamp(value, tz=get_settings().app_tzinfo)
+            dt = datetime.fromtimestamp(value, tz=get_app_timezone())
             return format_app_datetime(dt)
         except Exception:  # noqa: BLE001
             return None
+
+    @staticmethod
+    def _retry_enabled() -> bool:
+        settings = get_settings()
+        return system_config_service.get_bool(
+            "chain_auto_retry_enabled",
+            default=settings.chain_auto_retry_enabled,
+        )
+
+    @staticmethod
+    def _retry_interval_seconds() -> int:
+        settings = get_settings()
+        return system_config_service.get_int(
+            "chain_auto_retry_interval_seconds",
+            default=settings.chain_auto_retry_interval_seconds,
+            minimum=5,
+        )
+
+    @staticmethod
+    def _retry_max_interval_seconds() -> int:
+        settings = get_settings()
+        return system_config_service.get_int(
+            "chain_auto_retry_max_interval_seconds",
+            default=settings.chain_auto_retry_max_interval_seconds,
+            minimum=5,
+        )
+
+    @staticmethod
+    def _retry_batch_size() -> int:
+        settings = get_settings()
+        return system_config_service.get_int(
+            "chain_auto_retry_batch_size",
+            default=settings.chain_auto_retry_batch_size,
+            minimum=1,
+        )
+
+    @staticmethod
+    def _hash_audit_enabled() -> bool:
+        settings = get_settings()
+        return system_config_service.get_bool(
+            "hash_audit_enabled",
+            default=settings.hash_audit_enabled,
+        )
+
+    @staticmethod
+    def _hash_audit_interval_seconds() -> int:
+        settings = get_settings()
+        return system_config_service.get_int(
+            "hash_audit_interval_seconds",
+            default=settings.hash_audit_interval_seconds,
+            minimum=30,
+        )
+
+    @staticmethod
+    def _hash_audit_batch_size() -> int:
+        settings = get_settings()
+        return system_config_service.get_int(
+            "hash_audit_batch_size",
+            default=settings.hash_audit_batch_size,
+            minimum=1,
+        )
 
     @staticmethod
     def _has_same_hash_alert(user_id: int, order_id: str, local_hash: str) -> bool:

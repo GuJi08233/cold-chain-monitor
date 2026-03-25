@@ -15,6 +15,9 @@ interface OrderItem {
   planned_start: string;
   status: string;
   created_at: string;
+  is_archived: boolean;
+  archive_reason: string | null;
+  archived_at: string | null;
 }
 
 interface DriverProfile {
@@ -573,6 +576,7 @@ export function OrdersPage() {
                   <th>货物</th>
                   <th>起止地</th>
                   <th>状态</th>
+                  <th>归档</th>
                   <th>创建时间</th>
                   <th>计划出发</th>
                   <th>操作</th>
@@ -591,6 +595,15 @@ export function OrdersPage() {
                         {item.origin} → {item.destination}
                       </td>
                       <td>{item.status}</td>
+                      <td>
+                        {item.is_archived ? (
+                          <span title={item.archive_reason || "测试归档"}>
+                            已归档{item.archive_reason ? ` / ${item.archive_reason}` : ""}
+                          </span>
+                        ) : (
+                          "-"
+                        )}
+                      </td>
                       <td>{item.created_at || "-"}</td>
                       <td>{item.planned_start}</td>
                       <td>
@@ -616,7 +629,7 @@ export function OrdersPage() {
                 })}
                 {orders.length === 0 && (
                   <tr>
-                    <td colSpan={9}>暂无运单</td>
+                    <td colSpan={10}>暂无运单</td>
                   </tr>
                 )}
               </tbody>

@@ -4,11 +4,44 @@ import { Panel } from "../../components/Panel";
 import { api, getErrorMessage, unwrap } from "../../lib/http";
 import type { ApiResponse } from "../../types/api";
 
+type ConfigGroup = "system" | "eth" | "tdengine" | "mqtt";
+type ConfigInputType = "text" | "password" | "number" | "boolean" | "timezone";
+
 interface ConfigItem {
   key: string;
+  label: string;
+  group: ConfigGroup;
+  input_type: ConfigInputType;
   value: string;
   is_sensitive: boolean;
   is_set: boolean;
+}
+
+const GROUP_TITLES: Record<ConfigGroup, string> = {
+  system: "系统运行配置",
+  eth: "以太坊配置",
+  tdengine: "TDengine 配置",
+  mqtt: "MQTT 配置",
+};
+
+const GROUP_ORDER: ConfigGroup[] = ["system", "eth", "tdengine", "mqtt"];
+
+const TIMEZONE_SUGGESTIONS = [
+  "Asia/Shanghai",
+  "UTC",
+  "Asia/Tokyo",
+  "Asia/Singapore",
+  "Europe/London",
+  "America/New_York",
+];
+
+function groupItemsByCategory(items: ConfigItem[]): Record<ConfigGroup, ConfigItem[]> {
+  return {
+    system: items.filter((item) => item.group === "system"),
+    eth: items.filter((item) => item.group === "eth"),
+    tdengine: items.filter((item) => item.group === "tdengine"),
+    mqtt: items.filter((item) => item.group === "mqtt"),
+  };
 }
 
 export function ConfigPage() {
@@ -18,12 +51,7 @@ export function ConfigPage() {
   const [success, setSuccess] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const groupedItems = useMemo(() => {
-    const eth = items.filter((item) => item.key.startsWith("eth_"));
-    const td = items.filter((item) => item.key.startsWith("tdengine_"));
-    const mqtt = items.filter((item) => item.key.startsWith("mqtt_"));
-    return { eth, td, mqtt };
-  }, [items]);
+  const groupedItems = useMemo(() => groupItemsByCategory(items), [items]);
 
   const loadData = async () => {
     setError("");
@@ -81,27 +109,89 @@ export function ConfigPage() {
     }
   };
 
-  const renderGroup = (title: string, groupItems: ConfigItem[]) => {
+  const updateDraftValue = (key: string, value: string) => {
+    setDraft((prev) => ({
+      ...prev,
+      [key]: value,
+    }));
+  };
+
+  const renderInput = (item: ConfigItem) => {
+    const value = draft[item.key] || "";
+    const placeholder =
+      item.is_sensitive ? (item.is_set ? "已设置（输入新值覆盖）" : "未设置") : "";
+
+    if (item.input_type === "boolean") {
+      return (
+        <select
+          onChange={(event) => updateDraftValue(item.key, event.target.value)}
+          value={value || "true"}
+        >
+          <option value="true">启用</option>
+          <option value="false">停用</option>
+        </select>
+      );
+    }
+
+    if (item.input_type === "number") {
+      return (
+        <input
+          min={0}
+          onChange={(event) => updateDraftValue(item.key, event.target.value)}
+          type="number"
+          value={value}
+        />
+      );
+    }
+
+    if (item.input_type === "timezone") {
+      return (
+        <>
+          <input
+            list="timezone-suggestions"
+            onChange={(event) => updateDraftValue(item.key, event.target.value)}
+            placeholder="例如：Asia/Shanghai"
+            type="text"
+            value={value}
+          />
+          <datalist id="timezone-suggestions">
+            {TIMEZONE_SUGGESTIONS.map((option) => (
+              <option key={option} value={option} />
+            ))}
+          </datalist>
+        </>
+      );
+    }
+
     return (
-      <div className="config-group">
-        <h3>{title}</h3>
+      <input
+        onChange={(event) => updateDraftValue(item.key, event.target.value)}
+        placeholder={placeholder}
+        type={item.is_sensitive ? "password" : "text"}
+        value={value}
+      />
+    );
+  };
+
+  const renderGroup = (group: ConfigGroup) => {
+    const groupItems = groupedItems[group];
+    if (!groupItems.length) {
+      return null;
+    }
+
+    return (
+      <div className="config-group" key={group}>
+        <h3>{GROUP_TITLES[group]}</h3>
+        {group === "system" && (
+          <p className="muted">
+            这些参数会影响后台定时任务与时间处理逻辑，保存后按新配置生效。
+          </p>
+        )}
         <div className="form-grid dual">
           {groupItems.map((item) => (
             <label key={item.key}>
-              {item.key}
-              <input
-                onChange={(event) =>
-                  setDraft((prev) => ({
-                    ...prev,
-                    [item.key]: event.target.value,
-                  }))
-                }
-                placeholder={
-                  item.is_sensitive ? (item.is_set ? "已设置（输入新值覆盖）" : "未设置") : ""
-                }
-                type={item.is_sensitive ? "password" : "text"}
-                value={draft[item.key] || ""}
-              />
+              {item.label}
+              {renderInput(item)}
             </label>
           ))}
         </div>
@@ -132,9 +222,7 @@ export function ConfigPage() {
       {error && <p className="error-text">{error}</p>}
       {success && <p className="success-text">{success}</p>}
 
-      {renderGroup("以太坊配置", groupedItems.eth)}
-      {renderGroup("TDengine 配置", groupedItems.td)}
-      {renderGroup("MQTT 配置", groupedItems.mqtt)}
+      {GROUP_ORDER.map((group) => renderGroup(group))}
     </Panel>
   );
 }

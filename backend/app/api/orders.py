@@ -28,6 +28,8 @@ from ..schemas.order import OrderCreateRequest
 from ..services.chain_service import chain_service
 from ..services.hash_service import hash_service
 from ..services.notification_service import notification_service
+from ..services.order_archive_service import OrderArchiveInfo, order_archive_service
+from ..schemas.order import OrderArchiveRequest
 
 router = APIRouter(prefix="/orders", tags=["orders"])
 logger = logging.getLogger(__name__)
@@ -59,7 +61,29 @@ def _serialize_alert_rule(rule: AlertRule) -> dict:
     }
 
 
-def _serialize_order(order: Order, include_alert_rules: bool = False) -> dict:
+def _serialize_archive(archive_info: OrderArchiveInfo | None) -> dict:
+    if archive_info is None or not archive_info.is_archived:
+        return {
+            "is_archived": False,
+            "archive_reason": None,
+            "archived_at": None,
+            "archived_by": None,
+            "archived_by_name": None,
+        }
+    return {
+        "is_archived": True,
+        "archive_reason": archive_info.reason,
+        "archived_at": archive_info.archived_at,
+        "archived_by": archive_info.archived_by,
+        "archived_by_name": archive_info.archived_by_name,
+    }
+
+
+def _serialize_order(
+    order: Order,
+    include_alert_rules: bool = False,
+    archive_info: OrderArchiveInfo | None = None,
+) -> dict:
     data = {
         "order_id": order.order_id,
         "device_id": order.device_id,
@@ -76,6 +100,7 @@ def _serialize_order(order: Order, include_alert_rules: bool = False) -> dict:
         "created_by": order.created_by,
         "created_at": _datetime_text(order.created_at),
     }
+    data.update(_serialize_archive(archive_info))
     if include_alert_rules:
         data["alert_rules"] = [_serialize_alert_rule(rule) for rule in order.alert_rules]
     return data
@@ -276,7 +301,18 @@ def list_orders(
         .offset((page - 1) * page_size)
         .limit(page_size)
     ).all()
-    items = [_serialize_order(order, include_alert_rules=False) for order in orders]
+    archive_map = order_archive_service.list_order_archives(
+        [order.order_id for order in orders],
+        db=db,
+    )
+    items = [
+        _serialize_order(
+            order,
+            include_alert_rules=False,
+            archive_info=archive_map.get(order.order_id),
+        )
+        for order in orders
+    ]
     return success_response(
         data={"items": items, "total": total, "page": page, "page_size": page_size}
     )
@@ -293,7 +329,10 @@ def get_order_detail(
         raise HTTPException(status_code=404, detail="运单不存在")
 
     _ensure_order_access(current_user, order)
-    return success_response(data=_serialize_order(order, include_alert_rules=True))
+    archive_info = order_archive_service.get_order_archive(order.order_id, db=db)
+    return success_response(
+        data=_serialize_order(order, include_alert_rules=True, archive_info=archive_info)
+    )
 
 
 @router.get("/{order_id}/alert-rules")
@@ -380,3 +419,33 @@ def cancel_order(
         except Exception:  # noqa: BLE001
             continue
     return success_response(data=_serialize_order(order), msg="运单已取消")
+
+
+@router.patch("/{order_id}/archive")
+def archive_order(
+    order_id: str,
+    payload: OrderArchiveRequest,
+    current_user: User = Depends(require_role(UserRole.SUPER_ADMIN)),
+    db: Session = Depends(get_db_session),
+) -> dict:
+    order = db.scalar(select(Order).where(Order.order_id == order_id).limit(1))
+    if order is None:
+        raise HTTPException(status_code=404, detail="运单不存在")
+    if payload.archived and order.status != OrderStatus.COMPLETED:
+        raise HTTPException(status_code=400, detail="仅已完成运单支持测试归档")
+
+    archive_info = order_archive_service.set_order_archive(
+        order_id=order.order_id,
+        archived=payload.archived,
+        reason=payload.reason,
+        operator=current_user,
+        db=db,
+    )
+    db.commit()
+    db.refresh(order)
+    return success_response(
+        data=_serialize_order(order, include_alert_rules=True, archive_info=archive_info),
+        msg="运单已归档，后续自动哈希巡检将跳过"
+        if payload.archived
+        else "运单已取消归档，后续将恢复自动哈希巡检",
+    )

@@ -46,3 +46,7 @@ class OrderCreateRequest(BaseModel):
             seen_metrics.add(rule.metric)
         return self
 
+
+class OrderArchiveRequest(BaseModel):
+    archived: bool = True
+    reason: str | None = Field(default=None, max_length=255)

@@ -4,7 +4,7 @@ import os
 from dataclasses import dataclass
 
 from Crypto.Cipher import AES
-from Crypto.Util.Padding import pad, unpad
+from Crypto.Util.Padding import unpad
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -18,6 +18,9 @@ SENSITIVE_CONFIG_KEYS = {
     "mqtt_password",
     "tdengine_password",
 }
+
+BOOL_TRUE_VALUES = {"1", "true", "yes", "on"}
+BOOL_FALSE_VALUES = {"0", "false", "no", "off"}
 
 
 def _derive_app_secret_key_bytes() -> bytes:
@@ -95,6 +98,44 @@ class SystemConfigService:
                     # 兼容历史明文值
                     pass
             return ConfigValue(key=key, value=value)
+
+    def get_text(
+        self,
+        key: str,
+        *,
+        default: str | None = None,
+        decrypt_sensitive: bool = True,
+    ) -> str | None:
+        try:
+            value = self.get_value(key, decrypt_sensitive=decrypt_sensitive).value
+        except Exception:  # noqa: BLE001
+            value = None
+        text = (value or "").strip()
+        return text or default
+
+    def get_bool(self, key: str, *, default: bool) -> bool:
+        value = self.get_text(key, default=None)
+        if value is None:
+            return default
+        lowered = value.strip().lower()
+        if lowered in BOOL_TRUE_VALUES:
+            return True
+        if lowered in BOOL_FALSE_VALUES:
+            return False
+        return default
+
+    def get_int(self, key: str, *, default: int, minimum: int | None = None) -> int:
+        value = self.get_text(key, default=None)
+        if value is None:
+            resolved = default
+        else:
+            try:
+                resolved = int(value)
+            except (TypeError, ValueError):
+                resolved = default
+        if minimum is not None:
+            return max(minimum, resolved)
+        return resolved
 
     def set_value(
         self,

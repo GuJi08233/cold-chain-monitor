@@ -1,6 +1,5 @@
 import unittest
 from datetime import datetime, timedelta
-from types import SimpleNamespace
 from unittest.mock import patch
 
 from app.services.integrity_guard_service import IntegrityGuardService
@@ -16,12 +15,9 @@ class IntegrityGuardServiceTests(unittest.TestCase):
             "retry_count": 2,
             "last_error_at": "2026-03-25 09:58:30",
         }
-        with patch(
-            "app.services.integrity_guard_service.get_settings",
-            return_value=SimpleNamespace(
-                chain_auto_retry_interval_seconds=30,
-                chain_auto_retry_max_interval_seconds=900,
-            ),
+        with (
+            patch.object(self.service, "_retry_interval_seconds", return_value=30),
+            patch.object(self.service, "_retry_max_interval_seconds", return_value=900),
         ):
             self.assertFalse(self.service._is_retry_due(payload, None, now))
 
@@ -32,12 +28,9 @@ class IntegrityGuardServiceTests(unittest.TestCase):
             "last_error_at": "2026-03-25 09:58:30",
         }
         future_now = now + timedelta(seconds=61)
-        with patch(
-            "app.services.integrity_guard_service.get_settings",
-            return_value=SimpleNamespace(
-                chain_auto_retry_interval_seconds=30,
-                chain_auto_retry_max_interval_seconds=900,
-            ),
+        with (
+            patch.object(self.service, "_retry_interval_seconds", return_value=30),
+            patch.object(self.service, "_retry_max_interval_seconds", return_value=900),
         ):
             self.assertTrue(self.service._is_retry_due(payload, None, future_now))
 

@@ -53,6 +53,11 @@ interface OrderDetail {
   actual_end: string | null;
   status: string;
   data_hash: string | null;
+  is_archived: boolean;
+  archive_reason: string | null;
+  archived_at: string | null;
+  archived_by: number | null;
+  archived_by_name: string | null;
   alert_rules: AlertRuleItem[];
 }
 
@@ -355,12 +360,14 @@ export function OrderDetailPage() {
   const auth = getAuth();
   const isDriver = auth?.role === "driver";
   const isAdmin = auth?.role === "admin" || auth?.role === "super_admin";
+  const isSuperAdmin = auth?.role === "super_admin";
 
   const [order, setOrder] = useState<OrderDetail | null>(null);
   const [anomalies, setAnomalies] = useState<AnomalyItem[]>([]);
   const [latest, setLatest] = useState<SensorLatest | null>(null);
   const [verify, setVerify] = useState<HashVerify | null>(null);
   const [verifyLoading, setVerifyLoading] = useState(false);
+  const [archiveLoading, setArchiveLoading] = useState(false);
   const [metrics, setMetrics] = useState<Record<MetricKey, SensorMetricPoint[]>>(EMPTY_METRICS);
   const [trackPoints, setTrackPoints] = useState<TrackPoint[]>([]);
   const [sensorInterval, setSensorInterval] = useState("raw");
@@ -629,6 +636,49 @@ export function OrderDetailPage() {
       setError(getErrorMessage(requestError));
     } finally {
       setVerifyLoading(false);
+    }
+  };
+
+  const toggleArchive = async () => {
+    if (!orderId || !order || archiveLoading) {
+      return;
+    }
+    if (!order.is_archived && order.status !== "completed") {
+      setError("仅已完成运单支持测试归档");
+      return;
+    }
+
+    let archived = true;
+    let reason = order.archive_reason || "测试归档";
+    if (order.is_archived) {
+      const ok = window.confirm(`确认取消运单 ${orderId} 的测试归档吗？`);
+      if (!ok) {
+        return;
+      }
+      archived = false;
+      reason = "";
+    } else {
+      const input = window.prompt("请输入归档原因（可选）", reason);
+      if (input === null) {
+        return;
+      }
+      reason = input.trim() || "测试归档";
+    }
+
+    setError("");
+    setArchiveLoading(true);
+    try {
+      const data = await unwrap(
+        api.patch<ApiResponse<OrderDetail>>(`/orders/${orderId}/archive`, {
+          archived,
+          reason,
+        }),
+      );
+      setOrder(data);
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+    } finally {
+      setArchiveLoading(false);
     }
   };
 
@@ -1012,6 +1062,16 @@ export function OrderDetailPage() {
                   取消运单
                 </button>
               )}
+            {isSuperAdmin && order?.status === "completed" && (
+              <button
+                className="ghost-btn small"
+                disabled={archiveLoading}
+                onClick={() => void toggleArchive()}
+                type="button"
+              >
+                {archiveLoading ? "处理中..." : order?.is_archived ? "取消归档" : "测试归档"}
+              </button>
+            )}
           </div>
         }
         title="运单基础信息"
@@ -1033,8 +1093,26 @@ export function OrderDetailPage() {
               <div className="detail-hero-side">
                 <span className={`status-badge ${statusTone}`}>{statusText}</span>
                 <p>{canVerifyHash ? "已具备链上校验条件" : "运单完成后可验证哈希"}</p>
+                {order.is_archived && (
+                  <p>
+                    已测试归档
+                    {order.archive_reason ? ` / ${order.archive_reason}` : ""}
+                  </p>
+                )}
               </div>
             </div>
+
+            {isSuperAdmin && order.status === "completed" && (
+              <p className="muted">
+                自动哈希巡检：
+                {order.is_archived
+                  ? `已跳过${order.archived_at ? `（${order.archived_at}）` : ""}`
+                  : "正常参与"}
+                {order.is_archived && order.archived_by_name
+                  ? `，操作人：${order.archived_by_name}`
+                  : ""}
+              </p>
+            )}
 
             <div className="detail-summary-grid">
               <article className="info-tile">
@@ -1400,7 +1478,11 @@ export function OrderDetailPage() {
             <p>校验结果: {verify.match ? "一致" : "不一致"}</p>
           </div>
         ) : (
-          <p className="muted">点击“验证哈希”发起校验</p>
+          <p className="muted">
+            {order?.is_archived
+              ? "该运单已测试归档，系统不会自动巡检；如需检查，可手动点击“验证哈希”。"
+              : "点击“验证哈希”发起校验"}
+          </p>
         )}
       </Panel>
 

@@ -57,6 +57,14 @@ def _mask_value(key: str, value: str) -> str:
 def main() -> int:
     settings = get_settings()
     config_map = {
+        "app_timezone": settings.app_timezone,
+        "chain_auto_retry_enabled": str(settings.chain_auto_retry_enabled).lower(),
+        "chain_auto_retry_interval_seconds": str(settings.chain_auto_retry_interval_seconds),
+        "chain_auto_retry_max_interval_seconds": str(settings.chain_auto_retry_max_interval_seconds),
+        "chain_auto_retry_batch_size": str(settings.chain_auto_retry_batch_size),
+        "hash_audit_enabled": str(settings.hash_audit_enabled).lower(),
+        "hash_audit_interval_seconds": str(settings.hash_audit_interval_seconds),
+        "hash_audit_batch_size": str(settings.hash_audit_batch_size),
         "mqtt_broker": settings.mqtt_broker,
         "mqtt_port": str(settings.mqtt_port),
         "mqtt_username": settings.mqtt_username or "",
@@ -83,7 +91,7 @@ def main() -> int:
         system_config_service.set_value(key, value)
         print(f"[OK] {key}={_mask_value(key, value)}")
 
-    print("[DONE] system_config 已同步 MQTT/TDengine/ETH 配置")
+    print("[DONE] system_config 已同步系统运行/MQTT/TDengine/ETH 配置")
     return 0
 
 

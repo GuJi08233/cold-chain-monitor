@@ -9,26 +9,65 @@ from fastapi import APIRouter, Body, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..config import get_settings
+from zoneinfo import ZoneInfoNotFoundError
+
+from ..config import get_settings, resolve_app_timezone
 from ..core.auth import require_role
 from ..core.deps import get_db_session
 from ..core.response import success_response
+from ..core.time_utils import clear_app_timezone_cache
 from ..models import SystemConfig, User, UserRole
 from ..services.chain_service import ChainServiceError, chain_service
-from ..services.init_service import DEFAULT_SYSTEM_CONFIG_KEYS
+from ..services.init_service import (
+    BOOLEAN_SYSTEM_CONFIG_KEYS,
+    DEFAULT_SYSTEM_CONFIG_KEYS,
+    NUMBER_SYSTEM_CONFIG_KEYS,
+    SYSTEM_CONFIG_META,
+)
 from ..services.system_config_service import SENSITIVE_CONFIG_KEYS, system_config_service
 
 router = APIRouter(prefix="/config", tags=["config"])
 settings = get_settings()
 
 
+def _default_config_value(key: str) -> str:
+    defaults = {
+        "app_timezone": settings.app_timezone,
+        "chain_auto_retry_enabled": "true" if settings.chain_auto_retry_enabled else "false",
+        "chain_auto_retry_interval_seconds": str(settings.chain_auto_retry_interval_seconds),
+        "chain_auto_retry_max_interval_seconds": str(settings.chain_auto_retry_max_interval_seconds),
+        "chain_auto_retry_batch_size": str(settings.chain_auto_retry_batch_size),
+        "hash_audit_enabled": "true" if settings.hash_audit_enabled else "false",
+        "hash_audit_interval_seconds": str(settings.hash_audit_interval_seconds),
+        "hash_audit_batch_size": str(settings.hash_audit_batch_size),
+        "mqtt_broker": settings.mqtt_broker,
+        "mqtt_port": str(settings.mqtt_port),
+        "mqtt_username": settings.mqtt_username or "",
+        "mqtt_topic": settings.mqtt_topic,
+        "mqtt_client_id": settings.mqtt_client_id,
+        "tdengine_host": settings.tdengine_host,
+        "tdengine_port": str(settings.tdengine_rest_port),
+        "tdengine_native_port": str(settings.tdengine_native_port),
+        "tdengine_rest_port": str(settings.tdengine_rest_port),
+        "tdengine_db": settings.tdengine_db,
+        "tdengine_user": settings.tdengine_username,
+        "eth_rpc_url": settings.eth_rpc_url or "",
+        "eth_contract_address": settings.eth_contract_address or "",
+    }
+    return defaults.get(key, "")
+
+
 def _serialize_config_item(key: str, value: str, *, stored_value: str) -> dict:
+    meta = SYSTEM_CONFIG_META.get(key, {})
     is_sensitive = key in SENSITIVE_CONFIG_KEYS
     is_set = bool((stored_value or "").strip())
     # 敏感项只返回占位信息，禁止回显历史值（即使是密文也不返回）。
-    safe_value = "" if is_sensitive else (value or "")
+    safe_value = "" if is_sensitive else ((value or "").strip() or _default_config_value(key))
     return {
         "key": key,
+        "label": str(meta.get("label") or key),
+        "group": str(meta.get("group") or "system"),
+        "input_type": str(meta.get("input_type") or ("password" if is_sensitive else "text")),
         "value": safe_value,
         "is_sensitive": is_sensitive,
         "is_set": is_set,
@@ -36,7 +75,11 @@ def _serialize_config_item(key: str, value: str, *, stored_value: str) -> dict:
 
 
 def _load_config_items(db: Session) -> list[dict]:
-    rows = db.scalars(select(SystemConfig).order_by(SystemConfig.key.asc())).all()
+    rows = db.scalars(
+        select(SystemConfig)
+        .where(SystemConfig.key.in_(DEFAULT_SYSTEM_CONFIG_KEYS))
+        .order_by(SystemConfig.key.asc())
+    ).all()
     items: list[dict] = []
     for row in rows:
         items.append(_serialize_config_item(row.key, row.value, stored_value=row.value))
@@ -45,7 +88,11 @@ def _load_config_items(db: Session) -> list[dict]:
 
 def _load_config_map(db: Session) -> dict[str, str]:
     """用于内部读取配置（如联通性测试），敏感项会解密用于连接，不对外回显。"""
-    rows = db.scalars(select(SystemConfig).order_by(SystemConfig.key.asc())).all()
+    rows = db.scalars(
+        select(SystemConfig)
+        .where(SystemConfig.key.in_(DEFAULT_SYSTEM_CONFIG_KEYS))
+        .order_by(SystemConfig.key.asc())
+    ).all()
     result: dict[str, str] = {}
     for row in rows:
         if row.key in SENSITIVE_CONFIG_KEYS:
@@ -63,6 +110,45 @@ def _read_config_or_default(config_map: dict[str, str], key: str, default_value)
     if value:
         return value
     return str(default_value)
+
+
+def _normalize_config_value(key: str, value: str) -> str:
+    text = str(value).strip()
+    if key in BOOLEAN_SYSTEM_CONFIG_KEYS:
+        if not text:
+            return ""
+        lowered = text.lower()
+        if lowered in {"1", "true", "yes", "on"}:
+            return "true"
+        if lowered in {"0", "false", "no", "off"}:
+            return "false"
+        raise HTTPException(status_code=400, detail=f"配置 `{key}` 必须是 true/false")
+
+    if key in NUMBER_SYSTEM_CONFIG_KEYS:
+        if not text:
+            return ""
+        try:
+            parsed = int(text)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=f"配置 `{key}` 必须是整数") from exc
+        minimum = int(SYSTEM_CONFIG_META.get(key, {}).get("min") or 1)
+        if parsed < minimum:
+            raise HTTPException(
+                status_code=400,
+                detail=f"配置 `{key}` 不能小于 {minimum}",
+            )
+        return str(parsed)
+
+    if key == "app_timezone":
+        if not text:
+            return ""
+        try:
+            resolve_app_timezone(text)
+        except ZoneInfoNotFoundError as exc:
+            raise HTTPException(status_code=400, detail=f"配置 `{key}` 无效: {text}") from exc
+        return text
+
+    return text
 
 
 @router.get("")
@@ -88,17 +174,22 @@ def update_system_config(
 
     try:
         for key, value in payload.items():
-            text = str(value)
+            text = _normalize_config_value(key, value)
             # 敏感项留空表示“不修改”，避免前端空值覆盖导致配置丢失。
             if key in SENSITIVE_CONFIG_KEYS and not text.strip():
                 continue
             system_config_service.set_value(key, text, db=db, commit=False)
         db.commit()
+    except HTTPException:
+        db.rollback()
+        raise
     except Exception as exc:  # noqa: BLE001
         db.rollback()
         raise HTTPException(status_code=500, detail=f"系统配置更新失败: {exc}") from exc
 
     db.expire_all()
+    if "app_timezone" in payload:
+        clear_app_timezone_cache()
     refreshed = _load_config_items(db)
     return success_response(
         data=refreshed,
