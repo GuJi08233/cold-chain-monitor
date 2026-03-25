@@ -31,10 +31,26 @@ function formatValidationDetail(item: ApiErrorDetailItem): string {
   return `${locParts.join(".")}: ${message}`;
 }
 
+function shouldBypassMonitorCache(url?: string, method?: string): boolean {
+  return (
+    (method || "get").toLowerCase() === "get" &&
+    typeof url === "string" &&
+    url.startsWith("/monitor/")
+  );
+}
+
 api.interceptors.request.use((config) => {
   const auth = getAuth();
   if (auth?.token) {
     config.headers.Authorization = `Bearer ${auth.token}`;
+  }
+  if (shouldBypassMonitorCache(config.url, config.method)) {
+    config.params = {
+      ...(config.params ?? {}),
+      _ts: Date.now(),
+    };
+    config.headers["Cache-Control"] = "no-cache";
+    config.headers.Pragma = "no-cache";
   }
   return config;
 });
