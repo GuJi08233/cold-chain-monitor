@@ -194,7 +194,8 @@ def get_latest_sensor_data(
     else:
         total_sensor_points = _extract_total_count(total_sensor_query)
     total_track_points, total_track_distance_meters = _load_order_track_summary(order)
-    _set_cache_header(response, order)
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
     return success_response(
         data={
             "order_id": order_id,
