@@ -1180,7 +1180,7 @@ export function OrderDetailPage() {
                 <strong>当前状态:</strong> {statusText}
               </p>
               <p>
-                <strong>实际结束:</strong> {formatDateTimeText(order.actual_end)}</strong>
+                <strong>实际结束:</strong> {formatDateTimeText(order.actual_end)}
               </p>
               <p>
                 <strong>最新数据时间:</strong> {formatDateTimeText(latest?.ts)}
