@@ -107,6 +107,17 @@ interface SensorPayload {
   metrics: Record<MetricKey, SensorMetricPoint[]>;
 }
 
+interface MonitorSummary {
+  sensor_total_points: number;
+  track_total_points: number;
+  track_total_distance_meters: number;
+}
+
+interface LatestPayload {
+  latest: SensorLatest | null;
+  summary: MonitorSummary;
+}
+
 interface TrackPoint {
   ts: string;
   lat: number | null;
@@ -297,30 +308,19 @@ function formatDurationText(
   return `${minutes}分钟`;
 }
 
-function calcDistanceKm(points: GeoTrackPoint[]): number {
-  if (points.length < 2) {
-    return 0;
-  }
-
+function calcSegmentDistanceKm(prev: GeoTrackPoint, current: GeoTrackPoint): number {
   const toRadians = (deg: number) => (deg * Math.PI) / 180;
-  let total = 0;
-  for (let index = 1; index < points.length; index += 1) {
-    const prev = points[index - 1];
-    const current = points[index];
-    const latDistance = toRadians(current.lat - prev.lat);
-    const lngDistance = toRadians(current.lng - prev.lng);
-    const a =
-      Math.sin(latDistance / 2) ** 2 +
-      Math.cos(toRadians(prev.lat)) *
-        Math.cos(toRadians(current.lat)) *
-        Math.sin(lngDistance / 2) ** 2;
-    total += 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  }
-  return total;
+  const latDistance = toRadians(current.lat - prev.lat);
+  const lngDistance = toRadians(current.lng - prev.lng);
+  const a =
+    Math.sin(latDistance / 2) ** 2 +
+    Math.cos(toRadians(prev.lat)) *
+      Math.cos(toRadians(current.lat)) *
+      Math.sin(lngDistance / 2) ** 2;
+  return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-function formatDistanceText(points: GeoTrackPoint[]): string {
-  const totalKm = calcDistanceKm(points);
+function formatDistanceKmText(totalKm: number): string {
   if (totalKm <= 0) {
     return "-";
   }
@@ -371,7 +371,10 @@ export function OrderDetailPage() {
   const [metrics, setMetrics] = useState<Record<MetricKey, SensorMetricPoint[]>>(EMPTY_METRICS);
   const [trackPoints, setTrackPoints] = useState<TrackPoint[]>([]);
   const [sensorInterval, setSensorInterval] = useState("raw");
-  const [sensorPointCount, setSensorPointCount] = useState(0);
+  const [sensorDisplayPointCount, setSensorDisplayPointCount] = useState(0);
+  const [sensorTotalPointCount, setSensorTotalPointCount] = useState(0);
+  const [trackTotalPointCount, setTrackTotalPointCount] = useState(0);
+  const [trackTotalDistanceMeters, setTrackTotalDistanceMeters] = useState(0);
   const [mode, setMode] = useState<MonitorMode>("recent");
   const [intervalMode, setIntervalMode] = useState<IntervalMode>("auto");
   const [recent, setRecent] = useState("1h");
@@ -410,7 +413,7 @@ export function OrderDetailPage() {
         unwrap(api.get<ApiResponse<OrderDetail>>(`/orders/${orderId}`)),
         unwrap(api.get<ApiResponse<AnomalyItem[]>>(`/orders/${orderId}/anomalies`)),
         unwrap(
-          api.get<ApiResponse<{ latest: SensorLatest | null }>>(
+          api.get<ApiResponse<LatestPayload>>(
             `/monitor/${orderId}/latest`,
           ),
         ),
@@ -418,6 +421,9 @@ export function OrderDetailPage() {
       setOrder(orderData);
       setAnomalies(anomalyData);
       setLatest(latestData.latest);
+      setSensorTotalPointCount(latestData.summary?.sensor_total_points || 0);
+      setTrackTotalPointCount(latestData.summary?.track_total_points || 0);
+      setTrackTotalDistanceMeters(latestData.summary?.track_total_distance_meters || 0);
     } catch (requestError) {
       setError(getErrorMessage(requestError));
     } finally {
@@ -476,7 +482,7 @@ export function OrderDetailPage() {
         pressure: sensorData.metrics.pressure || [],
       });
       setSensorInterval(sensorData.interval);
-      setSensorPointCount(sensorData.total_points);
+      setSensorDisplayPointCount(sensorData.total_points);
       setTrackPoints(trackData.points || []);
     } catch (requestError) {
       setError(getErrorMessage(requestError));
@@ -564,14 +570,27 @@ export function OrderDetailPage() {
                 nextMetrics.humidity.length,
                 nextMetrics.pressure.length,
               );
-              setSensorPointCount(maxCount);
+              setSensorDisplayPointCount(maxCount);
               return nextMetrics;
             });
+            setSensorTotalPointCount((prev) => prev + 1);
             setTrackPoints((prev) => {
               if (typeof data.gps_lat !== "number" || typeof data.gps_lng !== "number") {
                 return prev;
               }
-              const next = [...prev, { ts: data.ts, lat: data.gps_lat, lng: data.gps_lng }];
+              const nextPoint = { ts: data.ts, lat: data.gps_lat, lng: data.gps_lng };
+              const lastPoint = prev[prev.length - 1];
+              if (
+                lastPoint &&
+                typeof lastPoint.lat === "number" &&
+                typeof lastPoint.lng === "number"
+              ) {
+                setTrackTotalDistanceMeters((distance) =>
+                  distance + Math.round(calcSegmentDistanceKm(lastPoint, nextPoint) * 1000),
+                );
+              }
+              setTrackTotalPointCount((count) => count + 1);
+              const next = [...prev, nextPoint];
               return next.length > 500 ? next.slice(next.length - 500) : next;
             });
           });
@@ -826,8 +845,8 @@ export function OrderDetailPage() {
     return geoTrackPoints[geoTrackPoints.length - 1];
   }, [geoTrackPoints]);
   const trackDistanceText = useMemo(
-    () => formatDistanceText(geoTrackPoints),
-    [geoTrackPoints],
+    () => formatDistanceKmText(trackTotalDistanceMeters / 1000),
+    [trackTotalDistanceMeters],
   );
   const journeyDurationText = useMemo(() => {
     const startTime = order?.actual_start || order?.planned_start || geoTrackPoints[0]?.ts;
@@ -1133,7 +1152,7 @@ export function OrderDetailPage() {
               </article>
               <article className="info-tile">
                 <span>监控点数</span>
-                <strong>{sensorPointCount}</strong>
+                <strong>{sensorTotalPointCount}</strong>
               </article>
               <article className="info-tile">
                 <span>最新定位</span>
@@ -1258,13 +1277,13 @@ export function OrderDetailPage() {
             <strong>最近定位:</strong> {latestLocationText}
           </p>
           <p>
-            <strong>轨迹点数:</strong> {geoTrackPoints.length}
+            <strong>轨迹点数:</strong> {trackTotalPointCount}
           </p>
           <p>
             <strong>异常定位点:</strong> {anomalyGeoPoints.length}
           </p>
           <p>
-            <strong>监控点数:</strong> {sensorPointCount}
+            <strong>监控点数:</strong> {sensorTotalPointCount}
           </p>
           <p>
             <strong>实时通道:</strong> {toWsStateText(wsState, wsRetries)}
@@ -1348,13 +1367,19 @@ export function OrderDetailPage() {
       >
         <p className="muted monitor-meta">
           当前粒度: {sensorInterval}
-          {mode !== "realtime" ? `（请求：${intervalMode}）` : ""} | 点数: {sensorPointCount} | WS 状态:{" "}
+          {mode !== "realtime" ? `（请求：${intervalMode}）` : ""} | 显示点数:{" "}
+          {sensorDisplayPointCount} / 总点数: {sensorTotalPointCount} | WS 状态:{" "}
           {toWsStateText(wsState, wsRetries)}
           {loadingMonitor ? " | 加载中..." : ""}
         </p>
         {mode !== "realtime" && sensorInterval !== "raw" && (
           <p className="muted monitor-note">
             当前返回的是聚合数据（每个时间桶一条点），所以点数会比原始采样更少。需要原始点可切换“原始点”。
+          </p>
+        )}
+        {sensorDisplayPointCount < sensorTotalPointCount && (
+          <p className="muted monitor-note">
+            为保证图表流畅，当前曲线仅渲染部分点位；基础信息中的监控点数显示的是该运单完整总量。
           </p>
         )}
         <Suspense
@@ -1378,7 +1403,7 @@ export function OrderDetailPage() {
         <div className="map-summary-grid">
           <article className="info-tile compact">
             <span>轨迹点数</span>
-            <strong>{geoTrackPoints.length}</strong>
+            <strong>{trackTotalPointCount}</strong>
           </article>
           <article className="info-tile compact">
             <span>定位异常</span>
@@ -1393,6 +1418,11 @@ export function OrderDetailPage() {
             <strong>{formatDateTimeText(latestTrackPoint?.ts || latest?.ts)}</strong>
           </article>
         </div>
+        {geoTrackPoints.length < trackTotalPointCount && (
+          <p className="muted monitor-note">
+            地图为提升渲染性能使用了抽样轨迹；上方轨迹点数与轨迹里程显示的是完整统计值。
+          </p>
+        )}
 
         <div className="map-toolbar">
           <div className="map-legend">

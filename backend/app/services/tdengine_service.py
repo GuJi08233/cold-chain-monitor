@@ -73,6 +73,21 @@ class TdengineService:
     def _escape_text(raw_value: str) -> str:
         return raw_value.replace("\\", "\\\\").replace("'", "\\'")
 
+    @staticmethod
+    def _build_where_text(
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
+        extra_conditions: list[str] | None = None,
+    ) -> str:
+        conditions = list(extra_conditions or [])
+        if start_time is not None:
+            conditions.append(f"ts >= '{start_time.strftime('%Y-%m-%d %H:%M:%S')}'")
+        if end_time is not None:
+            conditions.append(f"ts <= '{end_time.strftime('%Y-%m-%d %H:%M:%S')}'")
+        if not conditions:
+            return ""
+        return " WHERE " + " AND ".join(conditions)
+
     def resolve_subtable_name(self, device_id: str, order_id: str) -> str:
         return self._sanitize_identifier(f"{device_id}_{order_id}")
 
@@ -126,6 +141,21 @@ class TdengineService:
         sql = (
             f"SELECT ts, temperature, humidity, pressure, gps_lat, gps_lng, uptime "
             f"FROM {self.settings.tdengine_db}.{subtable} ORDER BY ts DESC LIMIT 1"
+        )
+        return self.execute_sql(sql)
+
+    def query_sensor_count(
+        self,
+        device_id: str,
+        order_id: str,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
+    ) -> TdengineResult:
+        subtable = self.resolve_subtable_name(device_id, order_id)
+        where_text = self._build_where_text(start_time=start_time, end_time=end_time)
+        sql = (
+            f"SELECT COUNT(*) AS total_count FROM {self.settings.tdengine_db}.{subtable}"
+            f"{where_text}"
         )
         return self.execute_sql(sql)
 
@@ -208,6 +238,27 @@ class TdengineService:
         )
         return self.execute_sql(sql)
 
+    def query_track_batch(
+        self,
+        device_id: str,
+        order_id: str,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
+        offset: int = 0,
+        limit: int = 5000,
+    ) -> TdengineResult:
+        subtable = self.resolve_subtable_name(device_id, order_id)
+        where_text = self._build_where_text(
+            start_time=start_time,
+            end_time=end_time,
+            extra_conditions=["gps_lat IS NOT NULL", "gps_lng IS NOT NULL"],
+        )
+        sql = (
+            f"SELECT ts, gps_lat, gps_lng FROM {self.settings.tdengine_db}.{subtable} "
+            f"{where_text} ORDER BY ts LIMIT {limit} OFFSET {offset}"
+        )
+        return self.execute_sql(sql)
+
     def query_track(
         self,
         device_id: str,
@@ -216,18 +267,14 @@ class TdengineService:
         end_time: datetime | None = None,
         limit: int = 5000,
     ) -> TdengineResult:
-        subtable = self.resolve_subtable_name(device_id, order_id)
-        where = ["gps_lat IS NOT NULL", "gps_lng IS NOT NULL"]
-        if start_time is not None:
-            where.append(f"ts >= '{start_time.strftime('%Y-%m-%d %H:%M:%S')}'")
-        if end_time is not None:
-            where.append(f"ts <= '{end_time.strftime('%Y-%m-%d %H:%M:%S')}'")
-        where_text = " AND ".join(where)
-        sql = (
-            f"SELECT ts, gps_lat, gps_lng FROM {self.settings.tdengine_db}.{subtable} "
-            f"WHERE {where_text} ORDER BY ts LIMIT {limit}"
+        return self.query_track_batch(
+            device_id=device_id,
+            order_id=order_id,
+            start_time=start_time,
+            end_time=end_time,
+            offset=0,
+            limit=limit,
         )
-        return self.execute_sql(sql)
 
 
 tdengine_service = TdengineService()
