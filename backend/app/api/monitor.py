@@ -1,5 +1,6 @@
-from datetime import datetime, timedelta
 import logging
+import math
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import select
@@ -99,6 +100,78 @@ def _raise_tdengine_query_error(payload: dict) -> None:
     raise HTTPException(status_code=502, detail="监控数据查询失败，请稍后重试")
 
 
+def _extract_total_count(query_result) -> int:
+    rows = tdengine_service.payload_to_rows(query_result.payload)
+    if not rows:
+        return 0
+    try:
+        return int(rows[0].get("total_count") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _haversine_distance_meters(
+    prev_lat: float,
+    prev_lng: float,
+    current_lat: float,
+    current_lng: float,
+) -> float:
+    lat_distance = math.radians(current_lat - prev_lat)
+    lng_distance = math.radians(current_lng - prev_lng)
+    a = (
+        math.sin(lat_distance / 2) ** 2
+        + math.cos(math.radians(prev_lat))
+        * math.cos(math.radians(current_lat))
+        * math.sin(lng_distance / 2) ** 2
+    )
+    return 6371000 * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+
+def _load_order_track_summary(order: Order) -> tuple[int, int]:
+    total_points = 0
+    total_distance_meters = 0.0
+    offset = 0
+    batch_size = 5000
+    previous_point: tuple[float, float] | None = None
+
+    while True:
+        query_result = tdengine_service.query_track_batch(
+            device_id=order.device_id,
+            order_id=order.order_id,
+            offset=offset,
+            limit=batch_size,
+        )
+        if not query_result.ok:
+            if tdengine_service.is_table_not_exists(query_result.payload):
+                return 0, 0
+            _raise_tdengine_query_error(query_result.payload)
+
+        rows = tdengine_service.payload_to_rows(query_result.payload)
+        if not rows:
+            break
+
+        total_points += len(rows)
+        for row in rows:
+            try:
+                current_point = (float(row.get("gps_lat")), float(row.get("gps_lng")))
+            except (TypeError, ValueError):
+                continue
+            if previous_point is not None:
+                total_distance_meters += _haversine_distance_meters(
+                    previous_point[0],
+                    previous_point[1],
+                    current_point[0],
+                    current_point[1],
+                )
+            previous_point = current_point
+
+        offset += len(rows)
+        if len(rows) < batch_size:
+            break
+
+    return total_points, int(round(total_distance_meters))
+
+
 @router.get("/{order_id}/latest")
 def get_latest_sensor_data(
     order_id: str,
@@ -112,8 +185,27 @@ def get_latest_sensor_data(
         _raise_tdengine_query_error(result.payload)
     rows = [] if not result.ok else tdengine_service.payload_to_rows(result.payload)
     latest = rows[0] if rows else None
+    total_sensor_query = tdengine_service.query_sensor_count(order.device_id, order.order_id)
+    if not total_sensor_query.ok:
+        if tdengine_service.is_table_not_exists(total_sensor_query.payload):
+            total_sensor_points = 0
+        else:
+            _raise_tdengine_query_error(total_sensor_query.payload)
+    else:
+        total_sensor_points = _extract_total_count(total_sensor_query)
+    total_track_points, total_track_distance_meters = _load_order_track_summary(order)
     _set_cache_header(response, order)
-    return success_response(data={"order_id": order_id, "latest": latest})
+    return success_response(
+        data={
+            "order_id": order_id,
+            "latest": latest,
+            "summary": {
+                "sensor_total_points": total_sensor_points,
+                "track_total_points": total_track_points,
+                "track_total_distance_meters": total_track_distance_meters,
+            },
+        }
+    )
 
 
 @router.get("/{order_id}/sensor")
