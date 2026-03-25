@@ -585,10 +585,6 @@ export function OrderDetailPage() {
                 typeof lastPoint.lat === "number" &&
                 typeof lastPoint.lng === "number"
               ) {
-<<<<<<< HEAD
-                setTrackTotalDistanceMeters((distance) =>
-                  distance + Math.round(calcSegmentDistanceKm(lastPoint, nextPoint) * 1000),
-=======
                 const previousPoint = {
                   ts: lastPoint.ts,
                   lat: lastPoint.lat,
@@ -596,7 +592,6 @@ export function OrderDetailPage() {
                 };
                 setTrackTotalDistanceMeters((distance) =>
                   distance + Math.round(calcSegmentDistanceKm(previousPoint, nextPoint) * 1000),
->>>>>>> 43d16cb1df5686702bb92d203de0ad7893be4b55
                 );
               }
               setTrackTotalPointCount((count) => count + 1);
@@ -1185,7 +1180,7 @@ export function OrderDetailPage() {
                 <strong>当前状态:</strong> {statusText}
               </p>
               <p>
-                <strong>实际结束:</strong> {formatDateTimeText(order.actual_end)}
+                <strong>实际结束:</strong> {formatDateTimeText(order.actual_end)}</strong>
               </p>
               <p>
                 <strong>最新数据时间:</strong> {formatDateTimeText(latest?.ts)}
