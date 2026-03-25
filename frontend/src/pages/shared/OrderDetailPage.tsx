@@ -585,8 +585,18 @@ export function OrderDetailPage() {
                 typeof lastPoint.lat === "number" &&
                 typeof lastPoint.lng === "number"
               ) {
+<<<<<<< HEAD
                 setTrackTotalDistanceMeters((distance) =>
                   distance + Math.round(calcSegmentDistanceKm(lastPoint, nextPoint) * 1000),
+=======
+                const previousPoint = {
+                  ts: lastPoint.ts,
+                  lat: lastPoint.lat,
+                  lng: lastPoint.lng,
+                };
+                setTrackTotalDistanceMeters((distance) =>
+                  distance + Math.round(calcSegmentDistanceKm(previousPoint, nextPoint) * 1000),
+>>>>>>> 43d16cb1df5686702bb92d203de0ad7893be4b55
                 );
               }
               setTrackTotalPointCount((count) => count + 1);
