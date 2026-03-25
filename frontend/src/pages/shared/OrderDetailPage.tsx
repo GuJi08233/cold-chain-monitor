@@ -221,6 +221,18 @@ function toDateTimeLocalText(date: Date): string {
   return `${year}-${month}-${day}T${hour}:${minute}`;
 }
 
+function toDateTimeLocalValue(value: string | null | undefined): string {
+  if (!value) {
+    return "";
+  }
+  const normalized = value.includes("T") ? value : value.replace(" ", "T");
+  const date = new Date(normalized);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  return toDateTimeLocalText(date);
+}
+
 function findNearestTrackPoint(points: GeoTrackPoint[], targetTs: number): GeoTrackPoint | null {
   if (!points.length) {
     return null;
@@ -389,6 +401,11 @@ export function OrderDetailPage() {
   const [wsState, setWsState] = useState<WsState>("stopped");
   const [wsRetries, setWsRetries] = useState(0);
   const canVerifyHash = order?.status === "completed";
+  const isLiveOrder = order?.status === "in_transit";
+  const isFinishedOrder =
+    order?.status === "completed" ||
+    order?.status === "abnormal_closed" ||
+    order?.status === "cancelled";
 
   const targetAnomalyId = useMemo(() => {
     const raw = searchParams.get("anomaly_id");
@@ -401,6 +418,19 @@ export function OrderDetailPage() {
     }
     return parsed;
   }, [searchParams]);
+
+  const monitorAnchorTime = useMemo(() => {
+    if (!isFinishedOrder) {
+      return null;
+    }
+    return order?.actual_end || latest?.ts || order?.actual_start || order?.planned_start || null;
+  }, [
+    isFinishedOrder,
+    order?.actual_end,
+    order?.actual_start,
+    order?.planned_start,
+    latest?.ts,
+  ]);
 
   const loadBaseData = useCallback(async () => {
     if (!orderId) {
@@ -444,7 +474,13 @@ export function OrderDetailPage() {
     try {
       const sensorParams =
         mode === "recent"
-          ? { mode, metric: "all", recent, interval: intervalMode }
+          ? {
+              mode,
+              metric: "all",
+              recent,
+              interval: intervalMode,
+              ...(monitorAnchorTime ? { anchor_time: monitorAnchorTime } : {}),
+            }
           : mode === "custom"
             ? {
                 mode,
@@ -489,7 +525,7 @@ export function OrderDetailPage() {
     } finally {
       setLoadingMonitor(false);
     }
-  }, [orderId, mode, recent, customStart, customEnd, intervalMode]);
+  }, [orderId, mode, recent, customStart, customEnd, intervalMode, monitorAnchorTime]);
 
   useEffect(() => {
     void loadBaseData();
@@ -498,6 +534,30 @@ export function OrderDetailPage() {
   useEffect(() => {
     void loadMonitorData();
   }, [loadMonitorData]);
+
+  useEffect(() => {
+    if (mode === "realtime" && !isLiveOrder) {
+      setMode("recent");
+    }
+  }, [mode, isLiveOrder]);
+
+  useEffect(() => {
+    if (!isFinishedOrder || !order) {
+      return;
+    }
+    const defaultStart = toDateTimeLocalValue(
+      order.actual_start || order.planned_start || latest?.ts,
+    );
+    const defaultEnd = toDateTimeLocalValue(
+      order.actual_end || latest?.ts || order.actual_start || order.planned_start,
+    );
+    if (defaultStart) {
+      setCustomStart(defaultStart);
+    }
+    if (defaultEnd) {
+      setCustomEnd(defaultEnd);
+    }
+  }, [isFinishedOrder, order, latest?.ts]);
 
   useEffect(() => {
     if (!orderId || !auth?.token || mode !== "realtime" || order?.status !== "in_transit") {
@@ -881,6 +941,11 @@ export function OrderDetailPage() {
     }
     return anomalyGeoPointMap.get(selectedAnomalyId) || null;
   }, [selectedAnomalyId, anomalyGeoPointMap]);
+  const timePointLabel = isFinishedOrder ? "最后数据时间" : "最新数据时间";
+  const dashboardLocationLabel = isFinishedOrder ? "最后定位" : "最近定位";
+  const summaryLocationLabel = isFinishedOrder ? "最后定位" : "最新定位";
+  const mapTimeLabel = isFinishedOrder ? "最后轨迹时间" : "最新轨迹时间";
+  const dashboardTitle = isFinishedOrder ? "监控概览" : "实时仪表盘";
 
   useEffect(() => {
     if (targetAnomalyId === null) {
@@ -1160,7 +1225,7 @@ export function OrderDetailPage() {
                 <strong>{sensorTotalPointCount}</strong>
               </article>
               <article className="info-tile">
-                <span>最新定位</span>
+                <span>{summaryLocationLabel}</span>
                 <strong>{latestLocationText}</strong>
               </article>
             </div>
@@ -1183,11 +1248,13 @@ export function OrderDetailPage() {
                 <strong>实际结束:</strong> {formatDateTimeText(order.actual_end)}
               </p>
               <p>
-                <strong>最新数据时间:</strong> {formatDateTimeText(latest?.ts)}
+                <strong>{timePointLabel}:</strong> {formatDateTimeText(latest?.ts)}
               </p>
-              <p>
-                <strong>实时通道:</strong> {toWsStateText(wsState, wsRetries)}
-              </p>
+              {isLiveOrder && (
+                <p>
+                  <strong>实时通道:</strong> {toWsStateText(wsState, wsRetries)}
+                </p>
+              )}
               <p className="detail-hash-line">
                 <strong>数据哈希:</strong> {order.data_hash || "-"}
               </p>
@@ -1239,7 +1306,7 @@ export function OrderDetailPage() {
         )}
       </Panel>
 
-      <Panel title="实时仪表盘">
+      <Panel title={dashboardTitle}>
         <div className="stats-grid order-dashboard-grid">
           <div className="stat-card">
             <span>温度</span>
@@ -1276,10 +1343,10 @@ export function OrderDetailPage() {
         </div>
         <div className="key-value-grid order-dashboard-meta">
           <p>
-            <strong>最新数据时间:</strong> {latest?.ts || "-"}
+            <strong>{timePointLabel}:</strong> {latest?.ts || "-"}
           </p>
           <p>
-            <strong>最近定位:</strong> {latestLocationText}
+            <strong>{dashboardLocationLabel}:</strong> {latestLocationText}
           </p>
           <p>
             <strong>轨迹点数:</strong> {trackTotalPointCount}
@@ -1290,22 +1357,26 @@ export function OrderDetailPage() {
           <p>
             <strong>监控点数:</strong> {sensorTotalPointCount}
           </p>
-          <p>
-            <strong>实时通道:</strong> {toWsStateText(wsState, wsRetries)}
-          </p>
+          {isLiveOrder && (
+            <p>
+              <strong>实时通道:</strong> {toWsStateText(wsState, wsRetries)}
+            </p>
+          )}
         </div>
       </Panel>
 
       <Panel
         extra={
           <div className="toolbar-inline">
-            <button
-              className={mode === "realtime" ? "mode-btn active" : "mode-btn"}
-              onClick={() => setMode("realtime")}
-              type="button"
-            >
-              实时
-            </button>
+            {isLiveOrder && (
+              <button
+                className={mode === "realtime" ? "mode-btn active" : "mode-btn"}
+                onClick={() => setMode("realtime")}
+                type="button"
+              >
+                实时
+              </button>
+            )}
             <button
               className={mode === "recent" ? "mode-btn active" : "mode-btn"}
               onClick={() => setMode("recent")}
@@ -1373,8 +1444,12 @@ export function OrderDetailPage() {
         <p className="muted monitor-meta">
           当前粒度: {sensorInterval}
           {mode !== "realtime" ? `（请求：${intervalMode}）` : ""} | 显示点数:{" "}
-          {sensorDisplayPointCount} / 总点数: {sensorTotalPointCount} | WS 状态:{" "}
-          {toWsStateText(wsState, wsRetries)}
+          {sensorDisplayPointCount} / 总点数: {sensorTotalPointCount}
+          {isLiveOrder && (
+            <>
+              {" "}| WS 状态: {toWsStateText(wsState, wsRetries)}
+            </>
+          )}
           {loadingMonitor ? " | 加载中..." : ""}
         </p>
         {mode !== "realtime" && sensorInterval !== "raw" && (
@@ -1419,7 +1494,7 @@ export function OrderDetailPage() {
             <strong>{trackDistanceText}</strong>
           </article>
           <article className="info-tile compact">
-            <span>最新轨迹时间</span>
+            <span>{mapTimeLabel}</span>
             <strong>{formatDateTimeText(latestTrackPoint?.ts || latest?.ts)}</strong>
           </article>
         </div>
@@ -1592,7 +1667,6 @@ export function OrderDetailPage() {
           </table>
         </div>
       </Panel>
-
     </div>
   );
 }
