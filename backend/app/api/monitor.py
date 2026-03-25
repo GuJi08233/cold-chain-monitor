@@ -49,6 +49,7 @@ def _resolve_time_window(
     recent: str,
     start_text: str | None,
     end_text: str | None,
+    anchor_text: str | None,
 ) -> tuple[datetime, datetime]:
     now = app_now()
     if mode == "realtime":
@@ -65,7 +66,9 @@ def _resolve_time_window(
         duration = recent_map.get(recent)
         if duration is None:
             raise HTTPException(status_code=400, detail="recent 参数不合法")
-        return now - duration, now
+        anchor_dt = _parse_datetime(anchor_text, "anchor_time")
+        window_end = normalize_app_datetime(anchor_dt) if anchor_dt is not None else now
+        return window_end - duration, window_end
 
     if mode == "custom":
         start_dt = _parse_datetime(start_text, "start_time")
@@ -218,6 +221,7 @@ def get_sensor_data(
     recent: str = Query(default="1h"),
     start_time: str | None = Query(default=None),
     end_time: str | None = Query(default=None),
+    anchor_time: str | None = Query(default=None),
     interval: str = Query(default="auto"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db_session),
@@ -228,7 +232,7 @@ def get_sensor_data(
         raise HTTPException(status_code=400, detail="interval 参数不合法")
 
     order = _ensure_order_access(db, current_user, order_id)
-    window_start, window_end = _resolve_time_window(mode, recent, start_time, end_time)
+    window_start, window_end = _resolve_time_window(mode, recent, start_time, end_time, anchor_time)
     selected_interval = "raw" if mode == "realtime" else (
         _auto_interval(window_start, window_end) if interval == "auto" else interval
     )
