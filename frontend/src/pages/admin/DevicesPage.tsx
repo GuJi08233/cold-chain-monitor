@@ -1,5 +1,6 @@
 import { type FormEvent, useEffect, useState } from "react";
 
+import { Pagination } from "../../components/Pagination";
 import { Panel } from "../../components/Panel";
 import { api, getErrorMessage, unwrap } from "../../lib/http";
 import type { ApiResponse, PagedList } from "../../types/api";
@@ -34,18 +35,25 @@ export function DevicesPage() {
   const [devices, setDevices] = useState<DeviceItem[]>([]);
   const [drivers, setDrivers] = useState<DriverItem[]>([]);
   const [discoveredDevices, setDiscoveredDevices] = useState<DiscoveredDeviceItem[]>([]);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [total, setTotal] = useState(0);
   const [error, setError] = useState("");
   const [newDeviceId, setNewDeviceId] = useState("");
   const [newDeviceName, setNewDeviceName] = useState("");
   const [selectedBind, setSelectedBind] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
 
-  const loadData = async () => {
+  const loadData = async (nextPage = page, nextPageSize = pageSize) => {
     setLoading(true);
     setError("");
     try {
       const [deviceData, driverData, discoveredData] = await Promise.all([
-        unwrap(api.get<ApiResponse<DeviceItem[]>>("/devices")),
+        unwrap(
+          api.get<ApiResponse<PagedList<DeviceItem>>>("/devices", {
+            params: { page: nextPage, page_size: nextPageSize },
+          }),
+        ),
         unwrap(
           api.get<ApiResponse<PagedList<DriverItem>>>("/users", {
             params: { role: "driver", status: "active", page: 1, page_size: 100 },
@@ -57,7 +65,10 @@ export function DevicesPage() {
           }),
         ),
       ]);
-      setDevices(deviceData);
+      setDevices(deviceData.items);
+      setPage(deviceData.page);
+      setPageSize(deviceData.page_size);
+      setTotal(deviceData.total);
       setDrivers(driverData.items);
       setDiscoveredDevices(discoveredData);
     } catch (requestError) {
@@ -69,7 +80,7 @@ export function DevicesPage() {
 
   useEffect(() => {
     void loadData();
-  }, []);
+  }, [page, pageSize]);
 
   const createDevice = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -178,92 +189,106 @@ export function DevicesPage() {
         {loading ? (
           <p className="muted">加载中...</p>
         ) : (
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>设备 ID</th>
-                  <th>名称</th>
-                  <th>状态</th>
-                  <th>已绑定司机</th>
-                  <th>最近上报</th>
-                  <th>绑定操作</th>
-                  <th>删除</th>
-                </tr>
-              </thead>
-              <tbody>
-                {devices.map((device) => (
-                  <tr key={device.device_id}>
-                    <td>{device.device_id}</td>
-                    <td>{device.name}</td>
-                    <td>{device.status}</td>
-                    <td>
-                      {device.driver_id ? (
-                        <div>
-                          <strong>{device.driver?.display_name || device.driver?.username || "未知司机"}</strong>
-                          <span className="muted">（ID: {device.driver_id}）</span>
-                        </div>
-                      ) : (
-                        "-"
-                      )}
-                    </td>
-                    <td>{device.last_seen || "-"}</td>
-                    <td>
-                      {device.driver_id ? (
-                        <button
-                          className="ghost-btn small"
-                          onClick={() => void unbindDevice(device.device_id)}
-                          type="button"
-                        >
-                          解绑
-                        </button>
-                      ) : (
-                        <div className="inline-actions">
-                          <select
-                            onChange={(event) =>
-                              setSelectedBind((prev) => ({
-                                ...prev,
-                                [device.device_id]: event.target.value,
-                              }))
-                            }
-                            value={selectedBind[device.device_id] || ""}
-                          >
-                            <option value="">选择司机</option>
-                            {drivers.map((driver) => (
-                              <option key={driver.user_id} value={driver.user_id}>
-                                {driver.display_name || driver.username}
-                              </option>
-                            ))}
-                          </select>
+          <>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>设备 ID</th>
+                    <th>名称</th>
+                    <th>状态</th>
+                    <th>已绑定司机</th>
+                    <th>最近上报</th>
+                    <th>绑定操作</th>
+                    <th>删除</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {devices.map((device) => (
+                    <tr key={device.device_id}>
+                      <td>{device.device_id}</td>
+                      <td>{device.name}</td>
+                      <td>{device.status}</td>
+                      <td>
+                        {device.driver_id ? (
+                          <div>
+                            <strong>{device.driver?.display_name || device.driver?.username || "未知司机"}</strong>
+                            <span className="muted">（ID: {device.driver_id}）</span>
+                          </div>
+                        ) : (
+                          "-"
+                        )}
+                      </td>
+                      <td>{device.last_seen || "-"}</td>
+                      <td>
+                        {device.driver_id ? (
                           <button
                             className="ghost-btn small"
-                            onClick={() => void bindDevice(device.device_id)}
+                            onClick={() => void unbindDevice(device.device_id)}
                             type="button"
                           >
-                            绑定
+                            解绑
                           </button>
-                        </div>
-                      )}
-                    </td>
-                    <td>
-                      <button
-                        className="danger-link"
-                        onClick={() => void deleteDevice(device.device_id)}
-                        type="button"
-                      >
-                        删除
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-                {devices.length === 0 && (
-                  <tr>
-                    <td colSpan={7}>暂无设备</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+                        ) : (
+                          <div className="inline-actions">
+                            <select
+                              onChange={(event) =>
+                                setSelectedBind((prev) => ({
+                                  ...prev,
+                                  [device.device_id]: event.target.value,
+                                }))
+                              }
+                              value={selectedBind[device.device_id] || ""}
+                            >
+                              <option value="">选择司机</option>
+                              {drivers.map((driver) => (
+                                <option key={driver.user_id} value={driver.user_id}>
+                                  {driver.display_name || driver.username}
+                                </option>
+                              ))}
+                            </select>
+                            <button
+                              className="ghost-btn small"
+                              onClick={() => void bindDevice(device.device_id)}
+                              type="button"
+                            >
+                              绑定
+                            </button>
+                          </div>
+                        )}
+                      </td>
+                      <td>
+                        <button
+                          className="danger-link"
+                          onClick={() => void deleteDevice(device.device_id)}
+                          type="button"
+                        >
+                          删除
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {devices.length === 0 && (
+                    <tr>
+                      <td colSpan={7}>暂无设备</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            <Pagination
+              onPageChange={(nextPage) => {
+                setPage(nextPage);
+              }}
+              onPageSizeChange={(nextPageSize) => {
+                setPage(1);
+                setPageSize(nextPageSize);
+              }}
+              page={page}
+              pageSize={pageSize}
+              total={total}
+            />
+          </>
         )}
       </Panel>
     </div>

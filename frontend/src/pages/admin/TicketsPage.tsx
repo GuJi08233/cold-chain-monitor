@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 
+import { Pagination } from "../../components/Pagination";
 import { Panel } from "../../components/Panel";
 import { api, getErrorMessage, unwrap } from "../../lib/http";
 import type { ApiResponse, PagedList } from "../../types/api";
@@ -20,24 +21,30 @@ export function TicketsPage() {
   const [items, setItems] = useState<TicketItem[]>([]);
   const [status, setStatus] = useState("");
   const [type, setType] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const loadData = async () => {
+  const loadData = async (nextPage = page, nextPageSize = pageSize) => {
     setLoading(true);
     setError("");
     try {
       const data = await unwrap(
         api.get<ApiResponse<PagedList<TicketItem>>>("/tickets", {
           params: {
-            page: 1,
-            page_size: 100,
+            page: nextPage,
+            page_size: nextPageSize,
             status: status || undefined,
             type: type || undefined,
           },
         }),
       );
       setItems(data.items);
+      setPage(data.page);
+      setPageSize(data.page_size);
+      setTotal(data.total);
     } catch (requestError) {
       setError(getErrorMessage(requestError));
     } finally {
@@ -46,7 +53,8 @@ export function TicketsPage() {
   };
 
   useEffect(() => {
-    void loadData();
+    setPage(1);
+    void loadData(1, pageSize);
   }, [status, type]);
 
   const reviewTicket = async (ticketId: number, action: "approve" | "reject") => {
@@ -67,13 +75,25 @@ export function TicketsPage() {
     <Panel
       extra={
         <div className="toolbar-inline">
-          <select onChange={(event) => setStatus(event.target.value)} value={status}>
+          <select
+            onChange={(event) => {
+              setPage(1);
+              setStatus(event.target.value);
+            }}
+            value={status}
+          >
             <option value="">全部状态</option>
             <option value="pending">pending</option>
             <option value="approved">approved</option>
             <option value="rejected">rejected</option>
           </select>
-          <select onChange={(event) => setType(event.target.value)} value={type}>
+          <select
+            onChange={(event) => {
+              setPage(1);
+              setType(event.target.value);
+            }}
+            value={type}
+          >
             <option value="">全部类型</option>
             <option value="cancel_order">cancel_order</option>
             <option value="anomaly_report">anomaly_report</option>
@@ -90,61 +110,77 @@ export function TicketsPage() {
       {loading ? (
         <p className="muted">加载中...</p>
       ) : (
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>类型</th>
-                <th>提交人</th>
-                <th>关联运单</th>
-                <th>状态</th>
-                <th>理由</th>
-                <th>提交时间</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((item) => (
-                <tr key={item.ticket_id}>
-                  <td>{item.ticket_id}</td>
-                  <td>{item.type}</td>
-                  <td>{item.submitter_id}</td>
-                  <td>{item.order_id || "-"}</td>
-                  <td>{item.status}</td>
-                  <td>{item.reason}</td>
-                  <td>{item.created_at}</td>
-                  <td>
-                    {item.status === "pending" && (
-                      <div className="inline-actions">
-                        <button
-                          className="ghost-btn small"
-                          onClick={() => void reviewTicket(item.ticket_id, "approve")}
-                          type="button"
-                        >
-                          通过
-                        </button>
-                        <button
-                          className="danger-link"
-                          onClick={() => void reviewTicket(item.ticket_id, "reject")}
-                          type="button"
-                        >
-                          拒绝
-                        </button>
-                      </div>
-                    )}
-                  </td>
-                </tr>
-              ))}
-              {items.length === 0 && (
-                <tr>
-                  <td colSpan={8}>暂无工单</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </Panel>
+          <>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>类型</th>
+                    <th>提交人</th>
+                    <th>关联运单</th>
+                    <th>状态</th>
+                    <th>理由</th>
+                    <th>提交时间</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {items.map((item) => (
+                    <tr key={item.ticket_id}>
+                      <td>{item.ticket_id}</td>
+                      <td>{item.type}</td>
+                      <td>{item.submitter_id}</td>
+                      <td>{item.order_id || "-"}</td>
+                      <td>{item.status}</td>
+                      <td>{item.reason}</td>
+                      <td>{item.created_at}</td>
+                      <td>
+                        {item.status === "pending" && (
+                          <div className="inline-actions">
+                            <button
+                              className="ghost-btn small"
+                              onClick={() => void reviewTicket(item.ticket_id, "approve")}
+                              type="button"
+                            >
+                              通过
+                            </button>
+                            <button
+                              className="danger-link"
+                              onClick={() => void reviewTicket(item.ticket_id, "reject")}
+                              type="button"
+                            >
+                              拒绝
+                            </button>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                  {items.length === 0 && (
+                    <tr>
+                      <td colSpan={8}>暂无工单</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            <Pagination
+              onPageChange={(nextPage) => {
+                setPage(nextPage);
+                void loadData(nextPage, pageSize);
+              }}
+              onPageSizeChange={(nextPageSize) => {
+                setPage(1);
+                setPageSize(nextPageSize);
+                void loadData(1, nextPageSize);
+              }}
+              page={page}
+              pageSize={pageSize}
+              total={total}
+            />
+          </>
+        )}
+      </Panel>
   );
 }

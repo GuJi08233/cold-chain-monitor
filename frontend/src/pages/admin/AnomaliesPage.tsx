@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
+import { Pagination } from "../../components/Pagination";
 import { Panel } from "../../components/Panel";
 import { api, getErrorMessage, unwrap } from "../../lib/http";
 import type { ApiResponse, PagedList } from "../../types/api";
@@ -68,20 +69,23 @@ export function AnomaliesPage() {
   const [status, setStatus] = useState("");
   const [metric, setMetric] = useState("");
   const [orderId, setOrderId] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
   const normalizedOrderId = useMemo(() => orderId.trim(), [orderId]);
 
-  const loadData = async () => {
+  const loadData = async (nextPage = page, nextPageSize = pageSize) => {
     setLoading(true);
     setError("");
     try {
       const data = await unwrap(
         api.get<ApiResponse<PagedList<AnomalyItem>>>("/anomalies", {
           params: {
-            page: 1,
-            page_size: 100,
+            page: nextPage,
+            page_size: nextPageSize,
             status: status || undefined,
             metric: metric || undefined,
             order_id: normalizedOrderId || undefined,
@@ -89,6 +93,9 @@ export function AnomaliesPage() {
         }),
       );
       setItems(data.items);
+      setPage(data.page);
+      setPageSize(data.page_size);
+      setTotal(data.total);
     } catch (requestError) {
       setError(getErrorMessage(requestError));
     } finally {
@@ -97,7 +104,8 @@ export function AnomaliesPage() {
   };
 
   useEffect(() => {
-    void loadData();
+    setPage(1);
+    void loadData(1, pageSize);
   }, [status, metric]);
 
   return (
@@ -121,7 +129,14 @@ export function AnomaliesPage() {
             placeholder="运单号过滤"
             value={orderId}
           />
-          <button className="ghost-btn" onClick={() => void loadData()} type="button">
+          <button
+            className="ghost-btn"
+            onClick={() => {
+              setPage(1);
+              void loadData(1, pageSize);
+            }}
+            type="button"
+          >
             查询
           </button>
         </div>
@@ -132,56 +147,72 @@ export function AnomaliesPage() {
       {loading ? (
         <p className="muted">加载中...</p>
       ) : (
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>运单号</th>
-                <th>设备</th>
-                <th>指标</th>
-                <th>触发值</th>
-                <th>阈值</th>
-                <th>状态</th>
-                <th>峰值</th>
-                <th>开始</th>
-                <th>持续</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((item) => (
-                <tr key={item.anomaly_id}>
-                  <td>{item.anomaly_id}</td>
-                  <td>{item.order_id}</td>
-                  <td>{item.device_id}</td>
-                  <td>{METRIC_LABELS[item.metric] || item.metric}</td>
-                  <td>{item.trigger_value}</td>
-                  <td>
-                    {item.threshold_min ?? "-"} / {item.threshold_max ?? "-"}
-                  </td>
-                  <td>{STATUS_LABELS[item.status] || item.status}</td>
-                  <td>{item.peak_value ?? "-"}</td>
-                  <td>{item.start_time}</td>
-                  <td>{formatDuration(item.start_time, item.end_time)}</td>
-                  <td>
-                    <Link
-                      className="text-link"
-                      to={`/admin/orders/${item.order_id}?anomaly_id=${item.anomaly_id}`}
-                    >
-                      查看详情
-                    </Link>
-                  </td>
-                </tr>
-              ))}
-              {items.length === 0 && (
+        <>
+          <div className="table-wrap">
+            <table>
+              <thead>
                 <tr>
-                  <td colSpan={11}>暂无异常记录</td>
+                  <th>ID</th>
+                  <th>运单号</th>
+                  <th>设备</th>
+                  <th>指标</th>
+                  <th>触发值</th>
+                  <th>阈值</th>
+                  <th>状态</th>
+                  <th>峰值</th>
+                  <th>开始</th>
+                  <th>持续</th>
+                  <th>操作</th>
                 </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {items.map((item) => (
+                  <tr key={item.anomaly_id}>
+                    <td>{item.anomaly_id}</td>
+                    <td>{item.order_id}</td>
+                    <td>{item.device_id}</td>
+                    <td>{METRIC_LABELS[item.metric] || item.metric}</td>
+                    <td>{item.trigger_value}</td>
+                    <td>
+                      {item.threshold_min ?? "-"} / {item.threshold_max ?? "-"}
+                    </td>
+                    <td>{STATUS_LABELS[item.status] || item.status}</td>
+                    <td>{item.peak_value ?? "-"}</td>
+                    <td>{item.start_time}</td>
+                    <td>{formatDuration(item.start_time, item.end_time)}</td>
+                    <td>
+                      <Link
+                        className="text-link"
+                        to={`/admin/orders/${item.order_id}?anomaly_id=${item.anomaly_id}`}
+                      >
+                        查看详情
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+                {items.length === 0 && (
+                  <tr>
+                    <td colSpan={11}>暂无异常记录</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          <Pagination
+            onPageChange={(nextPage) => {
+              setPage(nextPage);
+              void loadData(nextPage, pageSize);
+            }}
+            onPageSizeChange={(nextPageSize) => {
+              setPage(1);
+              setPageSize(nextPageSize);
+              void loadData(1, nextPageSize);
+            }}
+            page={page}
+            pageSize={pageSize}
+            total={total}
+          />
+        </>
       )}
     </Panel>
   );

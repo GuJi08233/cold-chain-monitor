@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from ..core.auth import require_role
@@ -40,17 +40,29 @@ def _serialize_device(device: Device) -> dict:
 def list_devices(
     status: DeviceStatus | None = Query(default=None),
     driver_id: int | None = Query(default=None, ge=1),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
     _: User = Depends(require_role(UserRole.SUPER_ADMIN, UserRole.ADMIN)),
     db: Session = Depends(get_db_session),
 ) -> dict:
-    stmt = select(Device).options(selectinload(Device.driver)).order_by(Device.created_at.desc())
+    stmt = select(Device).options(selectinload(Device.driver))
     if status is not None:
         stmt = stmt.where(Device.status == status)
     if driver_id is not None:
         stmt = stmt.where(Device.driver_id == driver_id)
 
-    devices = db.scalars(stmt).all()
-    return success_response(data=[_serialize_device(device) for device in devices])
+    total = db.scalar(select(func.count()).select_from(stmt.subquery()))
+    devices = db.scalars(
+        stmt.order_by(Device.created_at.desc()).offset((page - 1) * page_size).limit(page_size)
+    ).all()
+    return success_response(
+        data={
+            "items": [_serialize_device(device) for device in devices],
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+        }
+    )
 
 
 @router.post("")

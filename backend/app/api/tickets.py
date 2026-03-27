@@ -133,6 +133,7 @@ def create_ticket(
 def list_tickets(
     status: TicketStatus | None = Query(default=None),
     ticket_type: TicketType | None = Query(default=None, alias="type"),
+    ticket_id: int | None = Query(default=None, ge=1),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     current_user: User = Depends(get_current_user),
@@ -145,6 +146,8 @@ def list_tickets(
         stmt = stmt.where(Ticket.status == status)
     if ticket_type is not None:
         stmt = stmt.where(Ticket.type == ticket_type)
+    if ticket_id is not None:
+        stmt = stmt.where(Ticket.ticket_id == ticket_id)
 
     total = db.scalar(select(func.count()).select_from(stmt.subquery()))
     rows = db.scalars(

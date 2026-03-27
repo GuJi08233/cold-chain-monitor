@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
+import { Pagination } from "../../components/Pagination";
 import { Panel } from "../../components/Panel";
 import { api, getErrorMessage, unwrap } from "../../lib/http";
 import type { ApiResponse, PagedList } from "../../types/api";
@@ -152,6 +153,9 @@ export function ChainPage() {
   const [type, setType] = useState("");
   const [orderId, setOrderId] = useState("");
   const [anomalyId, setAnomalyId] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [total, setTotal] = useState(0);
   const [verifyOrderId, setVerifyOrderId] = useState("");
   const [verifyResult, setVerifyResult] = useState<VerifyResult | null>(null);
   const [detailAnomalyInput, setDetailAnomalyInput] = useState("");
@@ -161,15 +165,15 @@ export function ChainPage() {
   const [verifyLoading, setVerifyLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const loadData = async () => {
+  const loadData = async (nextPage = page, nextPageSize = pageSize) => {
     setLoading(true);
     setError("");
     try {
       const data = await unwrap(
         api.get<ApiResponse<PagedList<ChainRecord>>>("/chain/records", {
           params: {
-            page: 1,
-            page_size: 100,
+            page: nextPage,
+            page_size: nextPageSize,
             status: status || undefined,
             type: type || undefined,
             order_id: orderId.trim() || undefined,
@@ -178,6 +182,9 @@ export function ChainPage() {
         }),
       );
       setItems(data.items);
+      setPage(data.page);
+      setPageSize(data.page_size);
+      setTotal(data.total);
     } catch (requestError) {
       setError(getErrorMessage(requestError));
     } finally {
@@ -186,7 +193,8 @@ export function ChainPage() {
   };
 
   useEffect(() => {
-    void loadData();
+    setPage(1);
+    void loadData(1, pageSize);
   }, [status, type]);
 
   const retryRecord = async (recordId: number) => {
@@ -366,7 +374,14 @@ export function ChainPage() {
               placeholder="按异常ID过滤"
               value={anomalyId}
             />
-            <button className="ghost-btn" onClick={() => void loadData()} type="button">
+            <button
+              className="ghost-btn"
+              onClick={() => {
+                setPage(1);
+                void loadData(1, pageSize);
+              }}
+              type="button"
+            >
               查询
             </button>
           </div>
@@ -377,64 +392,80 @@ export function ChainPage() {
         {loading ? (
           <p className="muted">加载中...</p>
         ) : (
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>ID</th>
-                  <th>类型</th>
-                  <th>运单号</th>
-                  <th>异常ID</th>
-                  <th>状态</th>
-                  <th>交易哈希</th>
-                  <th>区块号</th>
-                  <th>创建时间</th>
-                  <th>操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((item) => (
-                  <tr key={item.record_id}>
-                    <td>{item.record_id}</td>
-                    <td>{TYPE_LABELS[item.type] || item.type}</td>
-                    <td>{item.order_id}</td>
-                    <td>{item.anomaly_id ?? "-"}</td>
-                    <td>{STATUS_LABELS[item.status] || item.status}</td>
-                    <td className="hash-cell">{renderTxHashLink(item.tx_hash)}</td>
-                    <td>{item.block_number || "-"}</td>
-                    <td>{item.created_at}</td>
-                    <td>
-                      <div className="inline-actions">
-                        {item.anomaly_id && (
-                          <button
-                            className="ghost-btn small"
-                            onClick={() => void loadAnomalyDetail(item.anomaly_id!)}
-                            type="button"
-                          >
-                            异常详情
-                          </button>
-                        )}
-                        {item.status === "failed" && (
-                          <button
-                            className="danger-link"
-                            onClick={() => void retryRecord(item.record_id)}
-                            type="button"
-                          >
-                            重试
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-                {items.length === 0 && (
+          <>
+            <div className="table-wrap">
+              <table>
+                <thead>
                   <tr>
-                    <td colSpan={9}>暂无上链记录</td>
+                    <th>ID</th>
+                    <th>类型</th>
+                    <th>运单号</th>
+                    <th>异常ID</th>
+                    <th>状态</th>
+                    <th>交易哈希</th>
+                    <th>区块号</th>
+                    <th>创建时间</th>
+                    <th>操作</th>
                   </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {items.map((item) => (
+                    <tr key={item.record_id}>
+                      <td>{item.record_id}</td>
+                      <td>{TYPE_LABELS[item.type] || item.type}</td>
+                      <td>{item.order_id}</td>
+                      <td>{item.anomaly_id ?? "-"}</td>
+                      <td>{STATUS_LABELS[item.status] || item.status}</td>
+                      <td className="hash-cell">{renderTxHashLink(item.tx_hash)}</td>
+                      <td>{item.block_number || "-"}</td>
+                      <td>{item.created_at}</td>
+                      <td>
+                        <div className="inline-actions">
+                          {item.anomaly_id && (
+                            <button
+                              className="ghost-btn small"
+                              onClick={() => void loadAnomalyDetail(item.anomaly_id!)}
+                              type="button"
+                            >
+                              异常详情
+                            </button>
+                          )}
+                          {item.status === "failed" && (
+                            <button
+                              className="danger-link"
+                              onClick={() => void retryRecord(item.record_id)}
+                              type="button"
+                            >
+                              重试
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                  {items.length === 0 && (
+                    <tr>
+                      <td colSpan={9}>暂无上链记录</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            <Pagination
+              onPageChange={(nextPage) => {
+                setPage(nextPage);
+                void loadData(nextPage, pageSize);
+              }}
+              onPageSizeChange={(nextPageSize) => {
+                setPage(1);
+                setPageSize(nextPageSize);
+                void loadData(1, nextPageSize);
+              }}
+              page={page}
+              pageSize={pageSize}
+              total={total}
+            />
+          </>
         )}
       </Panel>
     </div>

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 
+import { Pagination } from "../../components/Pagination";
 import { Panel } from "../../components/Panel";
 import { api, getErrorMessage, unwrap } from "../../lib/http";
 import type { ApiResponse, PagedList } from "../../types/api";
@@ -20,6 +21,9 @@ export function DriverTicketsPage() {
   const [items, setItems] = useState<TicketItem[]>([]);
   const [status, setStatus] = useState("");
   const [type, setType] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [total, setTotal] = useState(0);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -35,21 +39,25 @@ export function DriverTicketsPage() {
     return parsed;
   }, [searchParams]);
 
-  const loadData = async () => {
+  const loadData = async (nextPage = page, nextPageSize = pageSize) => {
     setLoading(true);
     setError("");
     try {
       const ticketData = await unwrap(
         api.get<ApiResponse<PagedList<TicketItem>>>("/tickets", {
           params: {
-            page: 1,
-            page_size: 100,
+            page: nextPage,
+            page_size: nextPageSize,
             status: status || undefined,
             type: type || undefined,
+            ticket_id: focusTicketId || undefined,
           },
         }),
       );
       setItems(ticketData.items);
+      setPage(ticketData.page);
+      setPageSize(ticketData.page_size);
+      setTotal(ticketData.total);
     } catch (requestError) {
       setError(getErrorMessage(requestError));
     } finally {
@@ -58,20 +66,33 @@ export function DriverTicketsPage() {
   };
 
   useEffect(() => {
-    void loadData();
-  }, [status, type]);
+    setPage(1);
+    void loadData(1, pageSize);
+  }, [status, type, focusTicketId]);
 
   return (
     <Panel
       extra={
         <div className="toolbar-inline">
-          <select onChange={(event) => setStatus(event.target.value)} value={status}>
+          <select
+            onChange={(event) => {
+              setPage(1);
+              setStatus(event.target.value);
+            }}
+            value={status}
+          >
             <option value="">全部状态</option>
             <option value="pending">待处理</option>
             <option value="approved">已通过</option>
             <option value="rejected">已拒绝</option>
           </select>
-          <select onChange={(event) => setType(event.target.value)} value={type}>
+          <select
+            onChange={(event) => {
+              setPage(1);
+              setType(event.target.value);
+            }}
+            value={type}
+          >
             <option value="">全部类型</option>
             <option value="cancel_order">取消运单</option>
             <option value="anomaly_report">异常申报</option>
@@ -92,42 +113,58 @@ export function DriverTicketsPage() {
       {loading ? (
         <p className="muted">加载中...</p>
       ) : (
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>类型</th>
-                <th>运单号</th>
-                <th>状态</th>
-                <th>理由</th>
-                <th>审批意见</th>
-                <th>提交时间</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((item) => (
-                <tr
-                  className={focusTicketId === item.ticket_id ? "highlight-row" : undefined}
-                  key={item.ticket_id}
-                >
-                  <td>{item.ticket_id}</td>
-                  <td>{item.type}</td>
-                  <td>{item.order_id || "-"}</td>
-                  <td>{item.status}</td>
-                  <td>{item.reason}</td>
-                  <td>{item.review_comment || "-"}</td>
-                  <td>{item.created_at}</td>
-                </tr>
-              ))}
-              {items.length === 0 && (
+        <>
+          <div className="table-wrap">
+            <table>
+              <thead>
                 <tr>
-                  <td colSpan={7}>暂无工单</td>
+                  <th>ID</th>
+                  <th>类型</th>
+                  <th>运单号</th>
+                  <th>状态</th>
+                  <th>理由</th>
+                  <th>审批意见</th>
+                  <th>提交时间</th>
                 </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {items.map((item) => (
+                  <tr
+                    className={focusTicketId === item.ticket_id ? "highlight-row" : undefined}
+                    key={item.ticket_id}
+                  >
+                    <td>{item.ticket_id}</td>
+                    <td>{item.type}</td>
+                    <td>{item.order_id || "-"}</td>
+                    <td>{item.status}</td>
+                    <td>{item.reason}</td>
+                    <td>{item.review_comment || "-"}</td>
+                    <td>{item.created_at}</td>
+                  </tr>
+                ))}
+                {items.length === 0 && (
+                  <tr>
+                    <td colSpan={7}>暂无工单</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          <Pagination
+            onPageChange={(nextPage) => {
+              setPage(nextPage);
+              void loadData(nextPage, pageSize);
+            }}
+            onPageSizeChange={(nextPageSize) => {
+              setPage(1);
+              setPageSize(nextPageSize);
+              void loadData(1, nextPageSize);
+            }}
+            page={page}
+            pageSize={pageSize}
+            total={total}
+          />
+        </>
       )}
     </Panel>
   );

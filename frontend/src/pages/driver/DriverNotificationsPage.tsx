@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
+import { Pagination } from "../../components/Pagination";
 import { Panel } from "../../components/Panel";
 import { api, getErrorMessage, unwrap } from "../../lib/http";
 import { dispatchUnreadSync } from "../../lib/notifications";
@@ -276,6 +277,9 @@ function resolveTarget(item: NotificationItem): NotificationTarget | null {
 
 export function DriverNotificationsPage() {
   const [items, setItems] = useState<NotificationItem[]>([]);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [total, setTotal] = useState(0);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -290,16 +294,23 @@ export function DriverNotificationsPage() {
     }
   };
 
-  const loadData = async (options?: { syncUnread?: boolean }) => {
+  const loadData = async (
+    options?: { syncUnread?: boolean },
+    nextPage = page,
+    nextPageSize = pageSize,
+  ) => {
     setLoading(true);
     setError("");
     try {
       const data = await unwrap(
         api.get<ApiResponse<PagedList<NotificationItem>>>("/notifications", {
-          params: { page: 1, page_size: 100 },
+          params: { page: nextPage, page_size: nextPageSize },
         }),
       );
       setItems(data.items);
+      setPage(data.page);
+      setPageSize(data.page_size);
+      setTotal(data.total);
       if (options?.syncUnread) {
         await syncUnreadCount();
       }
@@ -312,7 +323,7 @@ export function DriverNotificationsPage() {
 
   useEffect(() => {
     void loadData({ syncUnread: true });
-  }, []);
+  }, [page, pageSize]);
 
   const markRead = async (notificationId: number) => {
     try {
@@ -354,65 +365,79 @@ export function DriverNotificationsPage() {
       {loading ? (
         <p className="muted">加载中...</p>
       ) : (
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>类型</th>
-                <th>标题</th>
-                <th>内容</th>
-                <th>状态</th>
-                <th>时间</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((item) => {
-                const target = resolveTarget(item);
-                return (
-                  <tr key={item.notification_id}>
-                    <td>{item.notification_id}</td>
-                    <td>{TYPE_LABELS[item.type] || item.type}</td>
-                    <td>
-                      <p
-                        className={item.is_read ? "notification-title" : "notification-title unread"}
-                      >
-                        {item.title}
-                      </p>
-                    </td>
-                    <td className="content-cell">{renderContent(item)}</td>
-                    <td>{item.is_read ? "已读" : "未读"}</td>
-                    <td>{item.created_at}</td>
-                    <td>
-                      <div className="inline-actions">
-                        {target && (
-                          <Link className="text-link" to={target.to}>
-                            {target.label}
-                          </Link>
-                        )}
-                        {!item.is_read && (
-                          <button
-                            className="ghost-btn small"
-                            onClick={() => void markRead(item.notification_id)}
-                            type="button"
-                          >
-                            标记已读
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-              {items.length === 0 && (
+        <>
+          <div className="table-wrap">
+            <table>
+              <thead>
                 <tr>
-                  <td colSpan={7}>暂无通知</td>
+                  <th>ID</th>
+                  <th>类型</th>
+                  <th>标题</th>
+                  <th>内容</th>
+                  <th>状态</th>
+                  <th>时间</th>
+                  <th>操作</th>
                 </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {items.map((item) => {
+                  const target = resolveTarget(item);
+                  return (
+                    <tr key={item.notification_id}>
+                      <td>{item.notification_id}</td>
+                      <td>{TYPE_LABELS[item.type] || item.type}</td>
+                      <td>
+                        <p
+                          className={item.is_read ? "notification-title" : "notification-title unread"}
+                        >
+                          {item.title}
+                        </p>
+                      </td>
+                      <td className="content-cell">{renderContent(item)}</td>
+                      <td>{item.is_read ? "已读" : "未读"}</td>
+                      <td>{item.created_at}</td>
+                      <td>
+                        <div className="inline-actions">
+                          {target && (
+                            <Link className="text-link" to={target.to}>
+                              {target.label}
+                            </Link>
+                          )}
+                          {!item.is_read && (
+                            <button
+                              className="ghost-btn small"
+                              onClick={() => void markRead(item.notification_id)}
+                              type="button"
+                            >
+                              标记已读
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {items.length === 0 && (
+                  <tr>
+                    <td colSpan={7}>暂无通知</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          <Pagination
+            onPageChange={(nextPage) => {
+              setPage(nextPage);
+            }}
+            onPageSizeChange={(nextPageSize) => {
+              setPage(1);
+              setPageSize(nextPageSize);
+            }}
+            page={page}
+            pageSize={pageSize}
+            total={total}
+          />
+        </>
       )}
     </Panel>
   );

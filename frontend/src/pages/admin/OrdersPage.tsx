@@ -1,6 +1,7 @@
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
+import { Pagination } from "../../components/Pagination";
 import { Panel } from "../../components/Panel";
 import { api, getErrorMessage, unwrap } from "../../lib/http";
 import type { ApiResponse, PagedList } from "../../types/api";
@@ -157,6 +158,9 @@ export function OrdersPage() {
   const [search, setSearch] = useState("");
   const [driverFilterId, setDriverFilterId] = useState("");
   const [deviceFilterId, setDeviceFilterId] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -202,15 +206,15 @@ export function OrdersPage() {
     return fallback || null;
   }, [selectedDriver, deviceMap, devices]);
 
-  const loadOrders = async () => {
+  const loadOrders = async (nextPage = page, nextPageSize = pageSize) => {
     setLoading(true);
     setError("");
     try {
       const data = await unwrap(
         api.get<ApiResponse<PagedList<OrderItem>>>("/orders", {
           params: {
-            page: 1,
-            page_size: 100,
+            page: nextPage,
+            page_size: nextPageSize,
             status: status || undefined,
             search: search || undefined,
             driver_id: driverFilterId ? Number(driverFilterId) : undefined,
@@ -219,6 +223,9 @@ export function OrdersPage() {
         }),
       );
       setOrders(data.items);
+      setPage(data.page);
+      setPageSize(data.page_size);
+      setTotal(data.total);
     } catch (requestError) {
       setError(getErrorMessage(requestError));
     } finally {
@@ -234,10 +241,14 @@ export function OrdersPage() {
             params: { role: "driver", status: "active", page: 1, page_size: 100 },
           }),
         ),
-        unwrap(api.get<ApiResponse<DeviceItem[]>>("/devices")),
+        unwrap(
+          api.get<ApiResponse<PagedList<DeviceItem>>>("/devices", {
+            params: { page: 1, page_size: 100 },
+          }),
+        ),
       ]);
       setDrivers(driverData.items);
-      setDevices(deviceData);
+      setDevices(deviceData.items);
     } catch (requestError) {
       setError(getErrorMessage(requestError));
     }
@@ -245,7 +256,7 @@ export function OrdersPage() {
 
   useEffect(() => {
     void loadOrders();
-  }, [status, search, driverFilterId, deviceFilterId]);
+  }, [status, search, driverFilterId, deviceFilterId, page, pageSize]);
 
   useEffect(() => {
     void loadDependencies();
@@ -527,7 +538,13 @@ export function OrdersPage() {
       <Panel
         extra={
           <div className="toolbar-inline">
-            <select onChange={(event) => setStatus(event.target.value)} value={status}>
+            <select
+              onChange={(event) => {
+                setPage(1);
+                setStatus(event.target.value);
+              }}
+              value={status}
+            >
               <option value="">全部状态</option>
               <option value="pending">待出发</option>
               <option value="in_transit">运输中</option>
@@ -535,7 +552,13 @@ export function OrdersPage() {
               <option value="abnormal_closed">异常关闭</option>
               <option value="cancelled">已取消</option>
             </select>
-            <select onChange={(event) => setDriverFilterId(event.target.value)} value={driverFilterId}>
+            <select
+              onChange={(event) => {
+                setPage(1);
+                setDriverFilterId(event.target.value);
+              }}
+              value={driverFilterId}
+            >
               <option value="">全部司机</option>
               {drivers.map((driver) => (
                 <option key={`filter-driver-${driver.user_id}`} value={driver.user_id}>
@@ -543,7 +566,13 @@ export function OrdersPage() {
                 </option>
               ))}
             </select>
-            <select onChange={(event) => setDeviceFilterId(event.target.value)} value={deviceFilterId}>
+            <select
+              onChange={(event) => {
+                setPage(1);
+                setDeviceFilterId(event.target.value);
+              }}
+              value={deviceFilterId}
+            >
               <option value="">全部设备</option>
               {devices.map((device) => (
                 <option key={`filter-device-${device.device_id}`} value={device.device_id}>
@@ -552,7 +581,10 @@ export function OrdersPage() {
               ))}
             </select>
             <input
-              onChange={(event) => setSearch(event.target.value)}
+              onChange={(event) => {
+                setPage(1);
+                setSearch(event.target.value);
+              }}
               placeholder="按运单号搜索"
               value={search}
             />
@@ -566,75 +598,89 @@ export function OrdersPage() {
         {loading ? (
           <p className="muted">加载中...</p>
         ) : (
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>运单号</th>
-                  <th>司机</th>
-                  <th>设备</th>
-                  <th>货物</th>
-                  <th>起止地</th>
-                  <th>状态</th>
-                  <th>归档</th>
-                  <th>创建时间</th>
-                  <th>计划出发</th>
-                  <th>操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {orders.map((item) => {
-                  const driver = driverMap.get(item.driver_id);
-                  return (
-                    <tr key={item.order_id}>
-                      <td>{item.order_id}</td>
-                      <td>{driver ? resolveDriverText(driver) : item.driver_id}</td>
-                      <td>{item.device_id}</td>
-                      <td>{item.cargo_name}</td>
-                      <td>
-                        {item.origin} → {item.destination}
-                      </td>
-                      <td>{item.status}</td>
-                      <td>
-                        {item.is_archived ? (
-                          <span title={item.archive_reason || "测试归档"}>
-                            已归档{item.archive_reason ? ` / ${item.archive_reason}` : ""}
-                          </span>
-                        ) : (
-                          "-"
-                        )}
-                      </td>
-                      <td>{item.created_at || "-"}</td>
-                      <td>{item.planned_start}</td>
-                      <td>
-                        <div className="inline-actions">
-                          <Link className="text-link" to={`/admin/orders/${item.order_id}`}>
-                            详情
-                          </Link>
-                          {item.status !== "completed" &&
-                            item.status !== "cancelled" &&
-                            item.status !== "abnormal_closed" && (
-                              <button
-                                className="danger-link"
-                                onClick={() => void cancelOrder(item.order_id)}
-                                type="button"
-                              >
-                                取消
-                              </button>
-                            )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-                {orders.length === 0 && (
+          <>
+            <div className="table-wrap">
+              <table>
+                <thead>
                   <tr>
-                    <td colSpan={10}>暂无运单</td>
+                    <th>运单号</th>
+                    <th>司机</th>
+                    <th>设备</th>
+                    <th>货物</th>
+                    <th>起止地</th>
+                    <th>状态</th>
+                    <th>归档</th>
+                    <th>创建时间</th>
+                    <th>计划出发</th>
+                    <th>操作</th>
                   </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {orders.map((item) => {
+                    const driver = driverMap.get(item.driver_id);
+                    return (
+                      <tr key={item.order_id}>
+                        <td>{item.order_id}</td>
+                        <td>{driver ? resolveDriverText(driver) : item.driver_id}</td>
+                        <td>{item.device_id}</td>
+                        <td>{item.cargo_name}</td>
+                        <td>
+                          {item.origin} → {item.destination}
+                        </td>
+                        <td>{item.status}</td>
+                        <td>
+                          {item.is_archived ? (
+                            <span title={item.archive_reason || "测试归档"}>
+                              已归档{item.archive_reason ? ` / ${item.archive_reason}` : ""}
+                            </span>
+                          ) : (
+                            "-"
+                          )}
+                        </td>
+                        <td>{item.created_at || "-"}</td>
+                        <td>{item.planned_start}</td>
+                        <td>
+                          <div className="inline-actions">
+                            <Link className="text-link" to={`/admin/orders/${item.order_id}`}>
+                              详情
+                            </Link>
+                            {item.status !== "completed" &&
+                              item.status !== "cancelled" &&
+                              item.status !== "abnormal_closed" && (
+                                <button
+                                  className="danger-link"
+                                  onClick={() => void cancelOrder(item.order_id)}
+                                  type="button"
+                                >
+                                  取消
+                                </button>
+                              )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {orders.length === 0 && (
+                    <tr>
+                      <td colSpan={10}>暂无运单</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            <Pagination
+              onPageChange={(nextPage) => {
+                setPage(nextPage);
+              }}
+              onPageSizeChange={(nextPageSize) => {
+                setPage(1);
+                setPageSize(nextPageSize);
+              }}
+              page={page}
+              pageSize={pageSize}
+              total={total}
+            />
+          </>
         )}
       </Panel>
     </div>
