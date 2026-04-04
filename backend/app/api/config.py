@@ -52,6 +52,7 @@ def _default_config_value(key: str) -> str:
         "tdengine_db": settings.tdengine_db,
         "tdengine_user": settings.tdengine_username,
         "eth_rpc_url": settings.eth_rpc_url or "",
+        "eth_rpc_url_backup": settings.eth_rpc_url_backup or "",
         "eth_contract_address": settings.eth_contract_address or "",
     }
     return defaults.get(key, "")

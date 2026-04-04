@@ -54,7 +54,12 @@ SYSTEM_CONFIG_META: dict[str, dict[str, object]] = {
     },
     "eth_rpc_url": {
         "group": "eth",
-        "label": "ETH RPC URL",
+        "label": "ETH RPC URL（主）",
+        "input_type": "text",
+    },
+    "eth_rpc_url_backup": {
+        "group": "eth",
+        "label": "ETH RPC URL（备用）",
         "input_type": "text",
     },
     "eth_contract_address": {

@@ -106,6 +106,7 @@ class Settings(BaseSettings):
     tdengine_db: str = Field(default="cold_chain", validation_alias="TDENGINE_DB")
 
     eth_rpc_url: str | None = Field(default=None, validation_alias="ETH_RPC_URL")
+    eth_rpc_url_backup: str | None = Field(default=None, validation_alias="ETH_RPC_URL_BACKUP")
     eth_contract_address: str | None = Field(default=None, validation_alias="ETH_CONTRACT_ADDRESS")
     eth_private_key: str | None = Field(default=None, validation_alias="ETH_PRIVATE_KEY")
     eth_aes_key: str | None = Field(default=None, validation_alias="ETH_AES_KEY")

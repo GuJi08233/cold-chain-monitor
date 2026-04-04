@@ -49,6 +49,7 @@ class ChainConfig:
     rpc_url: str
     private_key: str
     contract_address: str
+    rpc_url_backup: str | None = None
 
 
 @dataclass
@@ -686,10 +687,26 @@ class ChainService:
         Web3 = self._resolve_web3()
         config = self._load_chain_config()
 
-        provider = Web3.HTTPProvider(config.rpc_url, request_kwargs={"timeout": 10})
-        web3 = Web3(provider)
-        if not web3.is_connected():
-            raise ChainConfigError("ETH RPC 连接失败，请检查 eth_rpc_url")
+        rpc_urls = [config.rpc_url]
+        if config.rpc_url_backup:
+            rpc_urls.append(config.rpc_url_backup)
+
+        web3 = None
+        for idx, rpc_url in enumerate(rpc_urls):
+            provider = Web3.HTTPProvider(rpc_url, request_kwargs={"timeout": 10})
+            candidate = Web3(provider)
+            try:
+                if candidate.is_connected():
+                    web3 = candidate
+                    if idx > 0:
+                        logger.info("主 RPC 不可用，已切换到备用 RPC: %s", rpc_url)
+                    break
+            except Exception:  # noqa: BLE001
+                continue
+
+        if web3 is None:
+            raise ChainConfigError("所有 ETH RPC 均连接失败，请检查 eth_rpc_url 和 eth_rpc_url_backup")
+
         try:
             from web3.middleware import ExtraDataToPOAMiddleware  # pylint: disable=import-outside-toplevel
 
@@ -739,10 +756,15 @@ class ChainService:
             joined = ", ".join(missing)
             raise ChainConfigError(f"系统配置缺少必要字段: {joined}")
 
+        rpc_url_backup = _normalize_secret(
+            system_config_service.get_value("eth_rpc_url_backup").value
+        ) or None
+
         return ChainConfig(
             rpc_url=rpc_url,
             private_key=private_key,
             contract_address=contract_address,
+            rpc_url_backup=rpc_url_backup,
         )
 
     def _load_contract_abi(self) -> list:
