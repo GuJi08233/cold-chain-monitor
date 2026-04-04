@@ -49,11 +49,13 @@ export function DriversPage() {
             params: { role: "driver", status: "active", page: 1, page_size: 100 },
           }),
         ),
-        unwrap(api.get<ApiResponse<DeviceItem[]>>("/devices")),
+        unwrap(api.get<ApiResponse<PagedList<DeviceItem>>>("/devices", {
+          params: { page: 1, page_size: 100 },
+        })),
       ]);
       setPendingDrivers(pendingData.items);
       setActiveDrivers(activeData.items);
-      setDevices(deviceData);
+      setDevices(deviceData.items);
     } catch (requestError) {
       setError(getErrorMessage(requestError));
     } finally {
